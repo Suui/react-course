@@ -47190,316 +47190,3272 @@ process.chdir = function (dir) {
 process.umask = function() { return 0; };
 
 },{}],159:[function(require,module,exports){
+/**
+ * Represents a cancellation caused by navigating away
+ * before the previous transition has fully resolved.
+ */
+"use strict";
+
+function Cancellation() {}
+
+module.exports = Cancellation;
+},{}],160:[function(require,module,exports){
+'use strict';
+
+var invariant = require('react/lib/invariant');
+var canUseDOM = require('react/lib/ExecutionEnvironment').canUseDOM;
+
+var History = {
+
+  /**
+   * The current number of entries in the history.
+   *
+   * Note: This property is read-only.
+   */
+  length: 1,
+
+  /**
+   * Sends the browser back one entry in the history.
+   */
+  back: function back() {
+    invariant(canUseDOM, 'Cannot use History.back without a DOM');
+
+    // Do this first so that History.length will
+    // be accurate in location change listeners.
+    History.length -= 1;
+
+    window.history.back();
+  }
+
+};
+
+module.exports = History;
+},{"react/lib/ExecutionEnvironment":217,"react/lib/invariant":332}],161:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+
+/* jshint -W084 */
+var PathUtils = require('./PathUtils');
+
+function deepSearch(route, pathname, query) {
+  // Check the subtree first to find the most deeply-nested match.
+  var childRoutes = route.childRoutes;
+  if (childRoutes) {
+    var match, childRoute;
+    for (var i = 0, len = childRoutes.length; i < len; ++i) {
+      childRoute = childRoutes[i];
+
+      if (childRoute.isDefault || childRoute.isNotFound) continue; // Check these in order later.
+
+      if (match = deepSearch(childRoute, pathname, query)) {
+        // A route in the subtree matched! Add this route and we're done.
+        match.routes.unshift(route);
+        return match;
+      }
+    }
+  }
+
+  // No child routes matched; try the default route.
+  var defaultRoute = route.defaultRoute;
+  if (defaultRoute && (params = PathUtils.extractParams(defaultRoute.path, pathname))) {
+    return new Match(pathname, params, query, [route, defaultRoute]);
+  } // Does the "not found" route match?
+  var notFoundRoute = route.notFoundRoute;
+  if (notFoundRoute && (params = PathUtils.extractParams(notFoundRoute.path, pathname))) {
+    return new Match(pathname, params, query, [route, notFoundRoute]);
+  } // Last attempt: check this route.
+  var params = PathUtils.extractParams(route.path, pathname);
+  if (params) {
+    return new Match(pathname, params, query, [route]);
+  }return null;
+}
+
+var Match = (function () {
+  function Match(pathname, params, query, routes) {
+    _classCallCheck(this, Match);
+
+    this.pathname = pathname;
+    this.params = params;
+    this.query = query;
+    this.routes = routes;
+  }
+
+  _createClass(Match, null, [{
+    key: 'findMatch',
+
+    /**
+     * Attempts to match depth-first a route in the given route's
+     * subtree against the given path and returns the match if it
+     * succeeds, null if no match can be made.
+     */
+    value: function findMatch(routes, path) {
+      var pathname = PathUtils.withoutQuery(path);
+      var query = PathUtils.extractQuery(path);
+      var match = null;
+
+      for (var i = 0, len = routes.length; match == null && i < len; ++i) match = deepSearch(routes[i], pathname, query);
+
+      return match;
+    }
+  }]);
+
+  return Match;
+})();
+
+module.exports = Match;
+},{"./PathUtils":163}],162:[function(require,module,exports){
+'use strict';
+
+var PropTypes = require('./PropTypes');
+
+/**
+ * A mixin for components that modify the URL.
+ *
+ * Example:
+ *
+ *   var MyLink = React.createClass({
+ *     mixins: [ Router.Navigation ],
+ *     handleClick(event) {
+ *       event.preventDefault();
+ *       this.transitionTo('aRoute', { the: 'params' }, { the: 'query' });
+ *     },
+ *     render() {
+ *       return (
+ *         <a onClick={this.handleClick}>Click me!</a>
+ *       );
+ *     }
+ *   });
+ */
+var Navigation = {
+
+  contextTypes: {
+    router: PropTypes.router.isRequired
+  },
+
+  /**
+   * Returns an absolute URL path created from the given route
+   * name, URL parameters, and query values.
+   */
+  makePath: function makePath(to, params, query) {
+    return this.context.router.makePath(to, params, query);
+  },
+
+  /**
+   * Returns a string that may safely be used as the href of a
+   * link to the route with the given name.
+   */
+  makeHref: function makeHref(to, params, query) {
+    return this.context.router.makeHref(to, params, query);
+  },
+
+  /**
+   * Transitions to the URL specified in the arguments by pushing
+   * a new URL onto the history stack.
+   */
+  transitionTo: function transitionTo(to, params, query) {
+    this.context.router.transitionTo(to, params, query);
+  },
+
+  /**
+   * Transitions to the URL specified in the arguments by replacing
+   * the current URL in the history stack.
+   */
+  replaceWith: function replaceWith(to, params, query) {
+    this.context.router.replaceWith(to, params, query);
+  },
+
+  /**
+   * Transitions to the previous URL.
+   */
+  goBack: function goBack() {
+    return this.context.router.goBack();
+  }
+
+};
+
+module.exports = Navigation;
+},{"./PropTypes":164}],163:[function(require,module,exports){
+'use strict';
+
+var invariant = require('react/lib/invariant');
+var assign = require('object-assign');
+var qs = require('qs');
+
+var paramCompileMatcher = /:([a-zA-Z_$][a-zA-Z0-9_$]*)|[*.()\[\]\\+|{}^$]/g;
+var paramInjectMatcher = /:([a-zA-Z_$][a-zA-Z0-9_$?]*[?]?)|[*]/g;
+var paramInjectTrailingSlashMatcher = /\/\/\?|\/\?\/|\/\?/g;
+var queryMatcher = /\?(.*)$/;
+
+var _compiledPatterns = {};
+
+function compilePattern(pattern) {
+  if (!(pattern in _compiledPatterns)) {
+    var paramNames = [];
+    var source = pattern.replace(paramCompileMatcher, function (match, paramName) {
+      if (paramName) {
+        paramNames.push(paramName);
+        return '([^/?#]+)';
+      } else if (match === '*') {
+        paramNames.push('splat');
+        return '(.*?)';
+      } else {
+        return '\\' + match;
+      }
+    });
+
+    _compiledPatterns[pattern] = {
+      matcher: new RegExp('^' + source + '$', 'i'),
+      paramNames: paramNames
+    };
+  }
+
+  return _compiledPatterns[pattern];
+}
+
+var PathUtils = {
+
+  /**
+   * Returns true if the given path is absolute.
+   */
+  isAbsolute: function isAbsolute(path) {
+    return path.charAt(0) === '/';
+  },
+
+  /**
+   * Joins two URL paths together.
+   */
+  join: function join(a, b) {
+    return a.replace(/\/*$/, '/') + b;
+  },
+
+  /**
+   * Returns an array of the names of all parameters in the given pattern.
+   */
+  extractParamNames: function extractParamNames(pattern) {
+    return compilePattern(pattern).paramNames;
+  },
+
+  /**
+   * Extracts the portions of the given URL path that match the given pattern
+   * and returns an object of param name => value pairs. Returns null if the
+   * pattern does not match the given path.
+   */
+  extractParams: function extractParams(pattern, path) {
+    var _compilePattern = compilePattern(pattern);
+
+    var matcher = _compilePattern.matcher;
+    var paramNames = _compilePattern.paramNames;
+
+    var match = path.match(matcher);
+
+    if (!match) {
+      return null;
+    }var params = {};
+
+    paramNames.forEach(function (paramName, index) {
+      params[paramName] = match[index + 1];
+    });
+
+    return params;
+  },
+
+  /**
+   * Returns a version of the given route path with params interpolated. Throws
+   * if there is a dynamic segment of the route path for which there is no param.
+   */
+  injectParams: function injectParams(pattern, params) {
+    params = params || {};
+
+    var splatIndex = 0;
+
+    return pattern.replace(paramInjectMatcher, function (match, paramName) {
+      paramName = paramName || 'splat';
+
+      // If param is optional don't check for existence
+      if (paramName.slice(-1) === '?') {
+        paramName = paramName.slice(0, -1);
+
+        if (params[paramName] == null) return '';
+      } else {
+        invariant(params[paramName] != null, 'Missing "%s" parameter for path "%s"', paramName, pattern);
+      }
+
+      var segment;
+      if (paramName === 'splat' && Array.isArray(params[paramName])) {
+        segment = params[paramName][splatIndex++];
+
+        invariant(segment != null, 'Missing splat # %s for path "%s"', splatIndex, pattern);
+      } else {
+        segment = params[paramName];
+      }
+
+      return segment;
+    }).replace(paramInjectTrailingSlashMatcher, '/');
+  },
+
+  /**
+   * Returns an object that is the result of parsing any query string contained
+   * in the given path, null if the path contains no query string.
+   */
+  extractQuery: function extractQuery(path) {
+    var match = path.match(queryMatcher);
+    return match && qs.parse(match[1]);
+  },
+
+  /**
+   * Returns a version of the given path without the query string.
+   */
+  withoutQuery: function withoutQuery(path) {
+    return path.replace(queryMatcher, '');
+  },
+
+  /**
+   * Returns a version of the given path with the parameters in the given
+   * query merged into the query string.
+   */
+  withQuery: function withQuery(path, query) {
+    var existingQuery = PathUtils.extractQuery(path);
+
+    if (existingQuery) query = query ? assign(existingQuery, query) : existingQuery;
+
+    var queryString = qs.stringify(query, { arrayFormat: 'brackets' });
+
+    if (queryString) {
+      return PathUtils.withoutQuery(path) + '?' + queryString;
+    }return PathUtils.withoutQuery(path);
+  }
+
+};
+
+module.exports = PathUtils;
+},{"object-assign":192,"qs":193,"react/lib/invariant":332}],164:[function(require,module,exports){
+'use strict';
+
+var assign = require('react/lib/Object.assign');
+var ReactPropTypes = require('react').PropTypes;
+var Route = require('./Route');
+
+var PropTypes = assign({}, ReactPropTypes, {
+
+  /**
+   * Indicates that a prop should be falsy.
+   */
+  falsy: function falsy(props, propName, componentName) {
+    if (props[propName]) {
+      return new Error('<' + componentName + '> should not have a "' + propName + '" prop');
+    }
+  },
+
+  /**
+   * Indicates that a prop should be a Route object.
+   */
+  route: ReactPropTypes.instanceOf(Route),
+
+  /**
+   * Indicates that a prop should be a Router object.
+   */
+  //router: ReactPropTypes.instanceOf(Router) // TODO
+  router: ReactPropTypes.func
+
+});
+
+module.exports = PropTypes;
+},{"./Route":166,"react":352,"react/lib/Object.assign":223}],165:[function(require,module,exports){
+/**
+ * Encapsulates a redirect to the given route.
+ */
+"use strict";
+
+function Redirect(to, params, query) {
+  this.to = to;
+  this.params = params;
+  this.query = query;
+}
+
+module.exports = Redirect;
+},{}],166:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+
+var assign = require('react/lib/Object.assign');
+var invariant = require('react/lib/invariant');
+var warning = require('react/lib/warning');
+var PathUtils = require('./PathUtils');
+
+var _currentRoute;
+
+var Route = (function () {
+  function Route(name, path, ignoreScrollBehavior, isDefault, isNotFound, onEnter, onLeave, handler) {
+    _classCallCheck(this, Route);
+
+    this.name = name;
+    this.path = path;
+    this.paramNames = PathUtils.extractParamNames(this.path);
+    this.ignoreScrollBehavior = !!ignoreScrollBehavior;
+    this.isDefault = !!isDefault;
+    this.isNotFound = !!isNotFound;
+    this.onEnter = onEnter;
+    this.onLeave = onLeave;
+    this.handler = handler;
+  }
+
+  _createClass(Route, [{
+    key: 'appendChild',
+
+    /**
+     * Appends the given route to this route's child routes.
+     */
+    value: function appendChild(route) {
+      invariant(route instanceof Route, 'route.appendChild must use a valid Route');
+
+      if (!this.childRoutes) this.childRoutes = [];
+
+      this.childRoutes.push(route);
+    }
+  }, {
+    key: 'toString',
+    value: function toString() {
+      var string = '<Route';
+
+      if (this.name) string += ' name="' + this.name + '"';
+
+      string += ' path="' + this.path + '">';
+
+      return string;
+    }
+  }], [{
+    key: 'createRoute',
+
+    /**
+     * Creates and returns a new route. Options may be a URL pathname string
+     * with placeholders for named params or an object with any of the following
+     * properties:
+     *
+     * - name                     The name of the route. This is used to lookup a
+     *                            route relative to its parent route and should be
+     *                            unique among all child routes of the same parent
+     * - path                     A URL pathname string with optional placeholders
+     *                            that specify the names of params to extract from
+     *                            the URL when the path matches. Defaults to `/${name}`
+     *                            when there is a name given, or the path of the parent
+     *                            route, or /
+     * - ignoreScrollBehavior     True to make this route (and all descendants) ignore
+     *                            the scroll behavior of the router
+     * - isDefault                True to make this route the default route among all
+     *                            its siblings
+     * - isNotFound               True to make this route the "not found" route among
+     *                            all its siblings
+     * - onEnter                  A transition hook that will be called when the
+     *                            router is going to enter this route
+     * - onLeave                  A transition hook that will be called when the
+     *                            router is going to leave this route
+     * - handler                  A React component that will be rendered when
+     *                            this route is active
+     * - parentRoute              The parent route to use for this route. This option
+     *                            is automatically supplied when creating routes inside
+     *                            the callback to another invocation of createRoute. You
+     *                            only ever need to use this when declaring routes
+     *                            independently of one another to manually piece together
+     *                            the route hierarchy
+     *
+     * The callback may be used to structure your route hierarchy. Any call to
+     * createRoute, createDefaultRoute, createNotFoundRoute, or createRedirect
+     * inside the callback automatically uses this route as its parent.
+     */
+    value: function createRoute(options, callback) {
+      options = options || {};
+
+      if (typeof options === 'string') options = { path: options };
+
+      var parentRoute = _currentRoute;
+
+      if (parentRoute) {
+        warning(options.parentRoute == null || options.parentRoute === parentRoute, 'You should not use parentRoute with createRoute inside another route\'s child callback; it is ignored');
+      } else {
+        parentRoute = options.parentRoute;
+      }
+
+      var name = options.name;
+      var path = options.path || name;
+
+      if (path && !(options.isDefault || options.isNotFound)) {
+        if (PathUtils.isAbsolute(path)) {
+          if (parentRoute) {
+            invariant(path === parentRoute.path || parentRoute.paramNames.length === 0, 'You cannot nest path "%s" inside "%s"; the parent requires URL parameters', path, parentRoute.path);
+          }
+        } else if (parentRoute) {
+          // Relative paths extend their parent.
+          path = PathUtils.join(parentRoute.path, path);
+        } else {
+          path = '/' + path;
+        }
+      } else {
+        path = parentRoute ? parentRoute.path : '/';
+      }
+
+      if (options.isNotFound && !/\*$/.test(path)) path += '*'; // Auto-append * to the path of not found routes.
+
+      var route = new Route(name, path, options.ignoreScrollBehavior, options.isDefault, options.isNotFound, options.onEnter, options.onLeave, options.handler);
+
+      if (parentRoute) {
+        if (route.isDefault) {
+          invariant(parentRoute.defaultRoute == null, '%s may not have more than one default route', parentRoute);
+
+          parentRoute.defaultRoute = route;
+        } else if (route.isNotFound) {
+          invariant(parentRoute.notFoundRoute == null, '%s may not have more than one not found route', parentRoute);
+
+          parentRoute.notFoundRoute = route;
+        }
+
+        parentRoute.appendChild(route);
+      }
+
+      // Any routes created in the callback
+      // use this route as their parent.
+      if (typeof callback === 'function') {
+        var currentRoute = _currentRoute;
+        _currentRoute = route;
+        callback.call(route, route);
+        _currentRoute = currentRoute;
+      }
+
+      return route;
+    }
+  }, {
+    key: 'createDefaultRoute',
+
+    /**
+     * Creates and returns a route that is rendered when its parent matches
+     * the current URL.
+     */
+    value: function createDefaultRoute(options) {
+      return Route.createRoute(assign({}, options, { isDefault: true }));
+    }
+  }, {
+    key: 'createNotFoundRoute',
+
+    /**
+     * Creates and returns a route that is rendered when its parent matches
+     * the current URL but none of its siblings do.
+     */
+    value: function createNotFoundRoute(options) {
+      return Route.createRoute(assign({}, options, { isNotFound: true }));
+    }
+  }, {
+    key: 'createRedirect',
+
+    /**
+     * Creates and returns a route that automatically redirects the transition
+     * to another route. In addition to the normal options to createRoute, this
+     * function accepts the following options:
+     *
+     * - from         An alias for the `path` option. Defaults to *
+     * - to           The path/route/route name to redirect to
+     * - params       The params to use in the redirect URL. Defaults
+     *                to using the current params
+     * - query        The query to use in the redirect URL. Defaults
+     *                to using the current query
+     */
+    value: function createRedirect(options) {
+      return Route.createRoute(assign({}, options, {
+        path: options.path || options.from || '*',
+        onEnter: function onEnter(transition, params, query) {
+          transition.redirect(options.to, options.params || params, options.query || query);
+        }
+      }));
+    }
+  }]);
+
+  return Route;
+})();
+
+module.exports = Route;
+},{"./PathUtils":163,"react/lib/Object.assign":223,"react/lib/invariant":332,"react/lib/warning":351}],167:[function(require,module,exports){
+'use strict';
+
+var invariant = require('react/lib/invariant');
+var canUseDOM = require('react/lib/ExecutionEnvironment').canUseDOM;
+var getWindowScrollPosition = require('./getWindowScrollPosition');
+
+function shouldUpdateScroll(state, prevState) {
+  if (!prevState) {
+    return true;
+  } // Don't update scroll position when only the query has changed.
+  if (state.pathname === prevState.pathname) {
+    return false;
+  }var routes = state.routes;
+  var prevRoutes = prevState.routes;
+
+  var sharedAncestorRoutes = routes.filter(function (route) {
+    return prevRoutes.indexOf(route) !== -1;
+  });
+
+  return !sharedAncestorRoutes.some(function (route) {
+    return route.ignoreScrollBehavior;
+  });
+}
+
+/**
+ * Provides the router with the ability to manage window scroll position
+ * according to its scroll behavior.
+ */
+var ScrollHistory = {
+
+  statics: {
+
+    /**
+     * Records curent scroll position as the last known position for the given URL path.
+     */
+    recordScrollPosition: function recordScrollPosition(path) {
+      if (!this.scrollHistory) this.scrollHistory = {};
+
+      this.scrollHistory[path] = getWindowScrollPosition();
+    },
+
+    /**
+     * Returns the last known scroll position for the given URL path.
+     */
+    getScrollPosition: function getScrollPosition(path) {
+      if (!this.scrollHistory) this.scrollHistory = {};
+
+      return this.scrollHistory[path] || null;
+    }
+
+  },
+
+  componentWillMount: function componentWillMount() {
+    invariant(this.constructor.getScrollBehavior() == null || canUseDOM, 'Cannot use scroll behavior without a DOM');
+  },
+
+  componentDidMount: function componentDidMount() {
+    this._updateScroll();
+  },
+
+  componentDidUpdate: function componentDidUpdate(prevProps, prevState) {
+    this._updateScroll(prevState);
+  },
+
+  _updateScroll: function _updateScroll(prevState) {
+    if (!shouldUpdateScroll(this.state, prevState)) {
+      return;
+    }var scrollBehavior = this.constructor.getScrollBehavior();
+
+    if (scrollBehavior) scrollBehavior.updateScrollPosition(this.constructor.getScrollPosition(this.state.path), this.state.action);
+  }
+
+};
+
+module.exports = ScrollHistory;
+},{"./getWindowScrollPosition":182,"react/lib/ExecutionEnvironment":217,"react/lib/invariant":332}],168:[function(require,module,exports){
+'use strict';
+
+var PropTypes = require('./PropTypes');
+
+/**
+ * A mixin for components that need to know the path, routes, URL
+ * params and query that are currently active.
+ *
+ * Example:
+ *
+ *   var AboutLink = React.createClass({
+ *     mixins: [ Router.State ],
+ *     render() {
+ *       var className = this.props.className;
+ *
+ *       if (this.isActive('about'))
+ *         className += ' is-active';
+ *
+ *       return React.DOM.a({ className: className }, this.props.children);
+ *     }
+ *   });
+ */
+var State = {
+
+  contextTypes: {
+    router: PropTypes.router.isRequired
+  },
+
+  /**
+   * Returns the current URL path.
+   */
+  getPath: function getPath() {
+    return this.context.router.getCurrentPath();
+  },
+
+  /**
+   * Returns the current URL path without the query string.
+   */
+  getPathname: function getPathname() {
+    return this.context.router.getCurrentPathname();
+  },
+
+  /**
+   * Returns an object of the URL params that are currently active.
+   */
+  getParams: function getParams() {
+    return this.context.router.getCurrentParams();
+  },
+
+  /**
+   * Returns an object of the query params that are currently active.
+   */
+  getQuery: function getQuery() {
+    return this.context.router.getCurrentQuery();
+  },
+
+  /**
+   * Returns an array of the routes that are currently active.
+   */
+  getRoutes: function getRoutes() {
+    return this.context.router.getCurrentRoutes();
+  },
+
+  /**
+   * A helper method to determine if a given route, params, and query
+   * are active.
+   */
+  isActive: function isActive(to, params, query) {
+    return this.context.router.isActive(to, params, query);
+  }
+
+};
+
+module.exports = State;
+},{"./PropTypes":164}],169:[function(require,module,exports){
+/* jshint -W058 */
+
+'use strict';
+
+var Cancellation = require('./Cancellation');
+var Redirect = require('./Redirect');
+
+/**
+ * Encapsulates a transition to a given path.
+ *
+ * The willTransitionTo and willTransitionFrom handlers receive
+ * an instance of this class as their first argument.
+ */
+function Transition(path, retry) {
+  this.path = path;
+  this.abortReason = null;
+  // TODO: Change this to router.retryTransition(transition)
+  this.retry = retry.bind(this);
+}
+
+Transition.prototype.abort = function (reason) {
+  if (this.abortReason == null) this.abortReason = reason || 'ABORT';
+};
+
+Transition.prototype.redirect = function (to, params, query) {
+  this.abort(new Redirect(to, params, query));
+};
+
+Transition.prototype.cancel = function () {
+  this.abort(new Cancellation());
+};
+
+Transition.from = function (transition, routes, components, callback) {
+  routes.reduce(function (callback, route, index) {
+    return function (error) {
+      if (error || transition.abortReason) {
+        callback(error);
+      } else if (route.onLeave) {
+        try {
+          route.onLeave(transition, components[index], callback);
+
+          // If there is no callback in the argument list, call it automatically.
+          if (route.onLeave.length < 3) callback();
+        } catch (e) {
+          callback(e);
+        }
+      } else {
+        callback();
+      }
+    };
+  }, callback)();
+};
+
+Transition.to = function (transition, routes, params, query, callback) {
+  routes.reduceRight(function (callback, route) {
+    return function (error) {
+      if (error || transition.abortReason) {
+        callback(error);
+      } else if (route.onEnter) {
+        try {
+          route.onEnter(transition, params, query, callback);
+
+          // If there is no callback in the argument list, call it automatically.
+          if (route.onEnter.length < 4) callback();
+        } catch (e) {
+          callback(e);
+        }
+      } else {
+        callback();
+      }
+    };
+  }, callback)();
+};
+
+module.exports = Transition;
+},{"./Cancellation":159,"./Redirect":165}],170:[function(require,module,exports){
+/**
+ * Actions that modify the URL.
+ */
+'use strict';
+
+var LocationActions = {
+
+  /**
+   * Indicates a new location is being pushed to the history stack.
+   */
+  PUSH: 'push',
+
+  /**
+   * Indicates the current location should be replaced.
+   */
+  REPLACE: 'replace',
+
+  /**
+   * Indicates the most recent entry should be removed from the history stack.
+   */
+  POP: 'pop'
+
+};
+
+module.exports = LocationActions;
+},{}],171:[function(require,module,exports){
+'use strict';
+
+var LocationActions = require('../actions/LocationActions');
+
+/**
+ * A scroll behavior that attempts to imitate the default behavior
+ * of modern browsers.
+ */
+var ImitateBrowserBehavior = {
+
+  updateScrollPosition: function updateScrollPosition(position, actionType) {
+    switch (actionType) {
+      case LocationActions.PUSH:
+      case LocationActions.REPLACE:
+        window.scrollTo(0, 0);
+        break;
+      case LocationActions.POP:
+        if (position) {
+          window.scrollTo(position.x, position.y);
+        } else {
+          window.scrollTo(0, 0);
+        }
+        break;
+    }
+  }
+
+};
+
+module.exports = ImitateBrowserBehavior;
+},{"../actions/LocationActions":170}],172:[function(require,module,exports){
+/**
+ * A scroll behavior that always scrolls to the top of the page
+ * after a transition.
+ */
+"use strict";
+
+var ScrollToTopBehavior = {
+
+  updateScrollPosition: function updateScrollPosition() {
+    window.scrollTo(0, 0);
+  }
+
+};
+
+module.exports = ScrollToTopBehavior;
+},{}],173:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+
+var _inherits = function (subClass, superClass) { if (typeof superClass !== 'function' && superClass !== null) { throw new TypeError('Super expression must either be null or a function, not ' + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) subClass.__proto__ = superClass; };
+
+/**
+ * This component is necessary to get around a context warning
+ * present in React 0.13.0. It sovles this by providing a separation
+ * between the "owner" and "parent" contexts.
+ */
+
+var React = require('react');
+
+var ContextWrapper = (function (_React$Component) {
+  function ContextWrapper() {
+    _classCallCheck(this, ContextWrapper);
+
+    if (_React$Component != null) {
+      _React$Component.apply(this, arguments);
+    }
+  }
+
+  _inherits(ContextWrapper, _React$Component);
+
+  _createClass(ContextWrapper, [{
+    key: 'render',
+    value: function render() {
+      return this.props.children;
+    }
+  }]);
+
+  return ContextWrapper;
+})(React.Component);
+
+module.exports = ContextWrapper;
+},{"react":352}],174:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _inherits = function (subClass, superClass) { if (typeof superClass !== 'function' && superClass !== null) { throw new TypeError('Super expression must either be null or a function, not ' + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) subClass.__proto__ = superClass; };
+
+var PropTypes = require('../PropTypes');
+var RouteHandler = require('./RouteHandler');
+var Route = require('./Route');
+
+/**
+ * A <DefaultRoute> component is a special kind of <Route> that
+ * renders when its parent matches but none of its siblings do.
+ * Only one such route may be used at any given level in the
+ * route hierarchy.
+ */
+
+var DefaultRoute = (function (_Route) {
+  function DefaultRoute() {
+    _classCallCheck(this, DefaultRoute);
+
+    if (_Route != null) {
+      _Route.apply(this, arguments);
+    }
+  }
+
+  _inherits(DefaultRoute, _Route);
+
+  return DefaultRoute;
+})(Route);
+
+// TODO: Include these in the above class definition
+// once we can use ES7 property initializers.
+// https://github.com/babel/babel/issues/619
+
+DefaultRoute.propTypes = {
+  name: PropTypes.string,
+  path: PropTypes.falsy,
+  children: PropTypes.falsy,
+  handler: PropTypes.func.isRequired
+};
+
+DefaultRoute.defaultProps = {
+  handler: RouteHandler
+};
+
+module.exports = DefaultRoute;
+},{"../PropTypes":164,"./Route":178,"./RouteHandler":179}],175:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+
+var _inherits = function (subClass, superClass) { if (typeof superClass !== 'function' && superClass !== null) { throw new TypeError('Super expression must either be null or a function, not ' + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) subClass.__proto__ = superClass; };
+
+var React = require('react');
+var assign = require('react/lib/Object.assign');
+var PropTypes = require('../PropTypes');
+
+function isLeftClickEvent(event) {
+  return event.button === 0;
+}
+
+function isModifiedEvent(event) {
+  return !!(event.metaKey || event.altKey || event.ctrlKey || event.shiftKey);
+}
+
+/**
+ * <Link> components are used to create an <a> element that links to a route.
+ * When that route is active, the link gets an "active" class name (or the
+ * value of its `activeClassName` prop).
+ *
+ * For example, assuming you have the following route:
+ *
+ *   <Route name="showPost" path="/posts/:postID" handler={Post}/>
+ *
+ * You could use the following component to link to that route:
+ *
+ *   <Link to="showPost" params={{ postID: "123" }} />
+ *
+ * In addition to params, links may pass along query string parameters
+ * using the `query` prop.
+ *
+ *   <Link to="showPost" params={{ postID: "123" }} query={{ show:true }}/>
+ */
+
+var Link = (function (_React$Component) {
+  function Link() {
+    _classCallCheck(this, Link);
+
+    if (_React$Component != null) {
+      _React$Component.apply(this, arguments);
+    }
+  }
+
+  _inherits(Link, _React$Component);
+
+  _createClass(Link, [{
+    key: 'handleClick',
+    value: function handleClick(event) {
+      var allowTransition = true;
+      var clickResult;
+
+      if (this.props.onClick) clickResult = this.props.onClick(event);
+
+      if (isModifiedEvent(event) || !isLeftClickEvent(event)) {
+        return;
+      }if (clickResult === false || event.defaultPrevented === true) allowTransition = false;
+
+      event.preventDefault();
+
+      if (allowTransition) this.context.router.transitionTo(this.props.to, this.props.params, this.props.query);
+    }
+  }, {
+    key: 'getHref',
+
+    /**
+     * Returns the value of the "href" attribute to use on the DOM element.
+     */
+    value: function getHref() {
+      return this.context.router.makeHref(this.props.to, this.props.params, this.props.query);
+    }
+  }, {
+    key: 'getClassName',
+
+    /**
+     * Returns the value of the "class" attribute to use on the DOM element, which contains
+     * the value of the activeClassName property when this <Link> is active.
+     */
+    value: function getClassName() {
+      var className = this.props.className;
+
+      if (this.getActiveState()) className += ' ' + this.props.activeClassName;
+
+      return className;
+    }
+  }, {
+    key: 'getActiveState',
+    value: function getActiveState() {
+      return this.context.router.isActive(this.props.to, this.props.params, this.props.query);
+    }
+  }, {
+    key: 'render',
+    value: function render() {
+      var props = assign({}, this.props, {
+        href: this.getHref(),
+        className: this.getClassName(),
+        onClick: this.handleClick.bind(this)
+      });
+
+      if (props.activeStyle && this.getActiveState()) props.style = props.activeStyle;
+
+      return React.DOM.a(props, this.props.children);
+    }
+  }]);
+
+  return Link;
+})(React.Component);
+
+// TODO: Include these in the above class definition
+// once we can use ES7 property initializers.
+// https://github.com/babel/babel/issues/619
+
+Link.contextTypes = {
+  router: PropTypes.router.isRequired
+};
+
+Link.propTypes = {
+  activeClassName: PropTypes.string.isRequired,
+  to: PropTypes.oneOfType([PropTypes.string, PropTypes.route]).isRequired,
+  params: PropTypes.object,
+  query: PropTypes.object,
+  activeStyle: PropTypes.object,
+  onClick: PropTypes.func
+};
+
+Link.defaultProps = {
+  activeClassName: 'active',
+  className: ''
+};
+
+module.exports = Link;
+},{"../PropTypes":164,"react":352,"react/lib/Object.assign":223}],176:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _inherits = function (subClass, superClass) { if (typeof superClass !== 'function' && superClass !== null) { throw new TypeError('Super expression must either be null or a function, not ' + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) subClass.__proto__ = superClass; };
+
+var PropTypes = require('../PropTypes');
+var RouteHandler = require('./RouteHandler');
+var Route = require('./Route');
+
+/**
+ * A <NotFoundRoute> is a special kind of <Route> that
+ * renders when the beginning of its parent's path matches
+ * but none of its siblings do, including any <DefaultRoute>.
+ * Only one such route may be used at any given level in the
+ * route hierarchy.
+ */
+
+var NotFoundRoute = (function (_Route) {
+  function NotFoundRoute() {
+    _classCallCheck(this, NotFoundRoute);
+
+    if (_Route != null) {
+      _Route.apply(this, arguments);
+    }
+  }
+
+  _inherits(NotFoundRoute, _Route);
+
+  return NotFoundRoute;
+})(Route);
+
+// TODO: Include these in the above class definition
+// once we can use ES7 property initializers.
+// https://github.com/babel/babel/issues/619
+
+NotFoundRoute.propTypes = {
+  name: PropTypes.string,
+  path: PropTypes.falsy,
+  children: PropTypes.falsy,
+  handler: PropTypes.func.isRequired
+};
+
+NotFoundRoute.defaultProps = {
+  handler: RouteHandler
+};
+
+module.exports = NotFoundRoute;
+},{"../PropTypes":164,"./Route":178,"./RouteHandler":179}],177:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _inherits = function (subClass, superClass) { if (typeof superClass !== 'function' && superClass !== null) { throw new TypeError('Super expression must either be null or a function, not ' + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) subClass.__proto__ = superClass; };
+
+var PropTypes = require('../PropTypes');
+var Route = require('./Route');
+
+/**
+ * A <Redirect> component is a special kind of <Route> that always
+ * redirects to another route when it matches.
+ */
+
+var Redirect = (function (_Route) {
+  function Redirect() {
+    _classCallCheck(this, Redirect);
+
+    if (_Route != null) {
+      _Route.apply(this, arguments);
+    }
+  }
+
+  _inherits(Redirect, _Route);
+
+  return Redirect;
+})(Route);
+
+// TODO: Include these in the above class definition
+// once we can use ES7 property initializers.
+// https://github.com/babel/babel/issues/619
+
+Redirect.propTypes = {
+  path: PropTypes.string,
+  from: PropTypes.string, // Alias for path.
+  to: PropTypes.string,
+  handler: PropTypes.falsy
+};
+
+// Redirects should not have a default handler
+Redirect.defaultProps = {};
+
+module.exports = Redirect;
+},{"../PropTypes":164,"./Route":178}],178:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+
+var _inherits = function (subClass, superClass) { if (typeof superClass !== 'function' && superClass !== null) { throw new TypeError('Super expression must either be null or a function, not ' + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) subClass.__proto__ = superClass; };
+
+var React = require('react');
+var invariant = require('react/lib/invariant');
+var PropTypes = require('../PropTypes');
+var RouteHandler = require('./RouteHandler');
+
+/**
+ * <Route> components specify components that are rendered to the page when the
+ * URL matches a given pattern.
+ *
+ * Routes are arranged in a nested tree structure. When a new URL is requested,
+ * the tree is searched depth-first to find a route whose path matches the URL.
+ * When one is found, all routes in the tree that lead to it are considered
+ * "active" and their components are rendered into the DOM, nested in the same
+ * order as they are in the tree.
+ *
+ * The preferred way to configure a router is using JSX. The XML-like syntax is
+ * a great way to visualize how routes are laid out in an application.
+ *
+ *   var routes = [
+ *     <Route handler={App}>
+ *       <Route name="login" handler={Login}/>
+ *       <Route name="logout" handler={Logout}/>
+ *       <Route name="about" handler={About}/>
+ *     </Route>
+ *   ];
+ *   
+ *   Router.run(routes, function (Handler) {
+ *     React.render(<Handler/>, document.body);
+ *   });
+ *
+ * Handlers for Route components that contain children can render their active
+ * child route using a <RouteHandler> element.
+ *
+ *   var App = React.createClass({
+ *     render: function () {
+ *       return (
+ *         <div class="application">
+ *           <RouteHandler/>
+ *         </div>
+ *       );
+ *     }
+ *   });
+ *
+ * If no handler is provided for the route, it will render a matched child route.
+ */
+
+var Route = (function (_React$Component) {
+  function Route() {
+    _classCallCheck(this, Route);
+
+    if (_React$Component != null) {
+      _React$Component.apply(this, arguments);
+    }
+  }
+
+  _inherits(Route, _React$Component);
+
+  _createClass(Route, [{
+    key: 'render',
+    value: function render() {
+      invariant(false, '%s elements are for router configuration only and should not be rendered', this.constructor.name);
+    }
+  }]);
+
+  return Route;
+})(React.Component);
+
+// TODO: Include these in the above class definition
+// once we can use ES7 property initializers.
+// https://github.com/babel/babel/issues/619
+
+Route.propTypes = {
+  name: PropTypes.string,
+  path: PropTypes.string,
+  handler: PropTypes.func,
+  ignoreScrollBehavior: PropTypes.bool
+};
+
+Route.defaultProps = {
+  handler: RouteHandler
+};
+
+module.exports = Route;
+},{"../PropTypes":164,"./RouteHandler":179,"react":352,"react/lib/invariant":332}],179:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+
+var _inherits = function (subClass, superClass) { if (typeof superClass !== 'function' && superClass !== null) { throw new TypeError('Super expression must either be null or a function, not ' + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) subClass.__proto__ = superClass; };
+
+var React = require('react');
+var ContextWrapper = require('./ContextWrapper');
+var assign = require('react/lib/Object.assign');
+var PropTypes = require('../PropTypes');
+
+var REF_NAME = '__routeHandler__';
+
+/**
+ * A <RouteHandler> component renders the active child route handler
+ * when routes are nested.
+ */
+
+var RouteHandler = (function (_React$Component) {
+  function RouteHandler() {
+    _classCallCheck(this, RouteHandler);
+
+    if (_React$Component != null) {
+      _React$Component.apply(this, arguments);
+    }
+  }
+
+  _inherits(RouteHandler, _React$Component);
+
+  _createClass(RouteHandler, [{
+    key: 'getChildContext',
+    value: function getChildContext() {
+      return {
+        routeDepth: this.context.routeDepth + 1
+      };
+    }
+  }, {
+    key: 'componentDidMount',
+    value: function componentDidMount() {
+      this._updateRouteComponent(this.refs[REF_NAME]);
+    }
+  }, {
+    key: 'componentDidUpdate',
+    value: function componentDidUpdate() {
+      this._updateRouteComponent(this.refs[REF_NAME]);
+    }
+  }, {
+    key: 'componentWillUnmount',
+    value: function componentWillUnmount() {
+      this._updateRouteComponent(null);
+    }
+  }, {
+    key: '_updateRouteComponent',
+    value: function _updateRouteComponent(component) {
+      this.context.router.setRouteComponentAtDepth(this.getRouteDepth(), component);
+    }
+  }, {
+    key: 'getRouteDepth',
+    value: function getRouteDepth() {
+      return this.context.routeDepth;
+    }
+  }, {
+    key: 'createChildRouteHandler',
+    value: function createChildRouteHandler(props) {
+      var route = this.context.router.getRouteAtDepth(this.getRouteDepth());
+
+      if (route == null) {
+        return null;
+      }var childProps = assign({}, props || this.props, {
+        ref: REF_NAME,
+        params: this.context.router.getCurrentParams(),
+        query: this.context.router.getCurrentQuery()
+      });
+
+      return React.createElement(route.handler, childProps);
+    }
+  }, {
+    key: 'render',
+    value: function render() {
+      var handler = this.createChildRouteHandler();
+      // <script/> for things like <CSSTransitionGroup/> that don't like null
+      return handler ? React.createElement(
+        ContextWrapper,
+        null,
+        handler
+      ) : React.createElement('script', null);
+    }
+  }]);
+
+  return RouteHandler;
+})(React.Component);
+
+// TODO: Include these in the above class definition
+// once we can use ES7 property initializers.
+// https://github.com/babel/babel/issues/619
+
+RouteHandler.contextTypes = {
+  routeDepth: PropTypes.number.isRequired,
+  router: PropTypes.router.isRequired
+};
+
+RouteHandler.childContextTypes = {
+  routeDepth: PropTypes.number.isRequired
+};
+
+module.exports = RouteHandler;
+},{"../PropTypes":164,"./ContextWrapper":173,"react":352,"react/lib/Object.assign":223}],180:[function(require,module,exports){
+(function (process){
+/* jshint -W058 */
+'use strict';
+
+var React = require('react');
+var warning = require('react/lib/warning');
+var invariant = require('react/lib/invariant');
+var canUseDOM = require('react/lib/ExecutionEnvironment').canUseDOM;
+var LocationActions = require('./actions/LocationActions');
+var ImitateBrowserBehavior = require('./behaviors/ImitateBrowserBehavior');
+var HashLocation = require('./locations/HashLocation');
+var HistoryLocation = require('./locations/HistoryLocation');
+var RefreshLocation = require('./locations/RefreshLocation');
+var StaticLocation = require('./locations/StaticLocation');
+var ScrollHistory = require('./ScrollHistory');
+var createRoutesFromReactChildren = require('./createRoutesFromReactChildren');
+var isReactChildren = require('./isReactChildren');
+var Transition = require('./Transition');
+var PropTypes = require('./PropTypes');
+var Redirect = require('./Redirect');
+var History = require('./History');
+var Cancellation = require('./Cancellation');
+var Match = require('./Match');
+var Route = require('./Route');
+var supportsHistory = require('./supportsHistory');
+var PathUtils = require('./PathUtils');
+
+/**
+ * The default location for new routers.
+ */
+var DEFAULT_LOCATION = canUseDOM ? HashLocation : '/';
+
+/**
+ * The default scroll behavior for new routers.
+ */
+var DEFAULT_SCROLL_BEHAVIOR = canUseDOM ? ImitateBrowserBehavior : null;
+
+function hasProperties(object, properties) {
+  for (var propertyName in properties) if (properties.hasOwnProperty(propertyName) && object[propertyName] !== properties[propertyName]) {
+    return false;
+  }return true;
+}
+
+function hasMatch(routes, route, prevParams, nextParams, prevQuery, nextQuery) {
+  return routes.some(function (r) {
+    if (r !== route) return false;
+
+    var paramNames = route.paramNames;
+    var paramName;
+
+    // Ensure that all params the route cares about did not change.
+    for (var i = 0, len = paramNames.length; i < len; ++i) {
+      paramName = paramNames[i];
+
+      if (nextParams[paramName] !== prevParams[paramName]) return false;
+    }
+
+    // Ensure the query hasn't changed.
+    return hasProperties(prevQuery, nextQuery) && hasProperties(nextQuery, prevQuery);
+  });
+}
+
+function addRoutesToNamedRoutes(routes, namedRoutes) {
+  var route;
+  for (var i = 0, len = routes.length; i < len; ++i) {
+    route = routes[i];
+
+    if (route.name) {
+      invariant(namedRoutes[route.name] == null, 'You may not have more than one route named "%s"', route.name);
+
+      namedRoutes[route.name] = route;
+    }
+
+    if (route.childRoutes) addRoutesToNamedRoutes(route.childRoutes, namedRoutes);
+  }
+}
+
+function routeIsActive(activeRoutes, routeName) {
+  return activeRoutes.some(function (route) {
+    return route.name === routeName;
+  });
+}
+
+function paramsAreActive(activeParams, params) {
+  for (var property in params) if (String(activeParams[property]) !== String(params[property])) {
+    return false;
+  }return true;
+}
+
+function queryIsActive(activeQuery, query) {
+  for (var property in query) if (String(activeQuery[property]) !== String(query[property])) {
+    return false;
+  }return true;
+}
+
+/**
+ * Creates and returns a new router using the given options. A router
+ * is a ReactComponent class that knows how to react to changes in the
+ * URL and keep the contents of the page in sync.
+ *
+ * Options may be any of the following:
+ *
+ * - routes           (required) The route config
+ * - location         The location to use. Defaults to HashLocation when
+ *                    the DOM is available, "/" otherwise
+ * - scrollBehavior   The scroll behavior to use. Defaults to ImitateBrowserBehavior
+ *                    when the DOM is available, null otherwise
+ * - onError          A function that is used to handle errors
+ * - onAbort          A function that is used to handle aborted transitions
+ *
+ * When rendering in a server-side environment, the location should simply
+ * be the URL path that was used in the request, including the query string.
+ */
+function createRouter(options) {
+  options = options || {};
+
+  if (isReactChildren(options)) options = { routes: options };
+
+  var mountedComponents = [];
+  var location = options.location || DEFAULT_LOCATION;
+  var scrollBehavior = options.scrollBehavior || DEFAULT_SCROLL_BEHAVIOR;
+  var state = {};
+  var nextState = {};
+  var pendingTransition = null;
+  var dispatchHandler = null;
+
+  if (typeof location === 'string') location = new StaticLocation(location);
+
+  if (location instanceof StaticLocation) {
+    warning(!canUseDOM || process.env.NODE_ENV === 'test', 'You should not use a static location in a DOM environment because ' + 'the router will not be kept in sync with the current URL');
+  } else {
+    invariant(canUseDOM || location.needsDOM === false, 'You cannot use %s without a DOM', location);
+  }
+
+  // Automatically fall back to full page refreshes in
+  // browsers that don't support the HTML history API.
+  if (location === HistoryLocation && !supportsHistory()) location = RefreshLocation;
+
+  var Router = React.createClass({
+
+    displayName: 'Router',
+
+    statics: {
+
+      isRunning: false,
+
+      cancelPendingTransition: function cancelPendingTransition() {
+        if (pendingTransition) {
+          pendingTransition.cancel();
+          pendingTransition = null;
+        }
+      },
+
+      clearAllRoutes: function clearAllRoutes() {
+        Router.cancelPendingTransition();
+        Router.namedRoutes = {};
+        Router.routes = [];
+      },
+
+      /**
+       * Adds routes to this router from the given children object (see ReactChildren).
+       */
+      addRoutes: function addRoutes(routes) {
+        if (isReactChildren(routes)) routes = createRoutesFromReactChildren(routes);
+
+        addRoutesToNamedRoutes(routes, Router.namedRoutes);
+
+        Router.routes.push.apply(Router.routes, routes);
+      },
+
+      /**
+       * Replaces routes of this router from the given children object (see ReactChildren).
+       */
+      replaceRoutes: function replaceRoutes(routes) {
+        Router.clearAllRoutes();
+        Router.addRoutes(routes);
+        Router.refresh();
+      },
+
+      /**
+       * Performs a match of the given path against this router and returns an object
+       * with the { routes, params, pathname, query } that match. Returns null if no
+       * match can be made.
+       */
+      match: function match(path) {
+        return Match.findMatch(Router.routes, path);
+      },
+
+      /**
+       * Returns an absolute URL path created from the given route
+       * name, URL parameters, and query.
+       */
+      makePath: function makePath(to, params, query) {
+        var path;
+        if (PathUtils.isAbsolute(to)) {
+          path = to;
+        } else {
+          var route = to instanceof Route ? to : Router.namedRoutes[to];
+
+          invariant(route instanceof Route, 'Cannot find a route named "%s"', to);
+
+          path = route.path;
+        }
+
+        return PathUtils.withQuery(PathUtils.injectParams(path, params), query);
+      },
+
+      /**
+       * Returns a string that may safely be used as the href of a link
+       * to the route with the given name, URL parameters, and query.
+       */
+      makeHref: function makeHref(to, params, query) {
+        var path = Router.makePath(to, params, query);
+        return location === HashLocation ? '#' + path : path;
+      },
+
+      /**
+       * Transitions to the URL specified in the arguments by pushing
+       * a new URL onto the history stack.
+       */
+      transitionTo: function transitionTo(to, params, query) {
+        var path = Router.makePath(to, params, query);
+
+        if (pendingTransition) {
+          // Replace so pending location does not stay in history.
+          location.replace(path);
+        } else {
+          location.push(path);
+        }
+      },
+
+      /**
+       * Transitions to the URL specified in the arguments by replacing
+       * the current URL in the history stack.
+       */
+      replaceWith: function replaceWith(to, params, query) {
+        location.replace(Router.makePath(to, params, query));
+      },
+
+      /**
+       * Transitions to the previous URL if one is available. Returns true if the
+       * router was able to go back, false otherwise.
+       *
+       * Note: The router only tracks history entries in your application, not the
+       * current browser session, so you can safely call this function without guarding
+       * against sending the user back to some other site. However, when using
+       * RefreshLocation (which is the fallback for HistoryLocation in browsers that
+       * don't support HTML5 history) this method will *always* send the client back
+       * because we cannot reliably track history length.
+       */
+      goBack: function goBack() {
+        if (History.length > 1 || location === RefreshLocation) {
+          location.pop();
+          return true;
+        }
+
+        warning(false, 'goBack() was ignored because there is no router history');
+
+        return false;
+      },
+
+      handleAbort: options.onAbort || function (abortReason) {
+        if (location instanceof StaticLocation) throw new Error('Unhandled aborted transition! Reason: ' + abortReason);
+
+        if (abortReason instanceof Cancellation) {
+          return;
+        } else if (abortReason instanceof Redirect) {
+          location.replace(Router.makePath(abortReason.to, abortReason.params, abortReason.query));
+        } else {
+          location.pop();
+        }
+      },
+
+      handleError: options.onError || function (error) {
+        // Throw so we don't silently swallow async errors.
+        throw error; // This error probably originated in a transition hook.
+      },
+
+      handleLocationChange: function handleLocationChange(change) {
+        Router.dispatch(change.path, change.type);
+      },
+
+      /**
+       * Performs a transition to the given path and calls callback(error, abortReason)
+       * when the transition is finished. If both arguments are null the router's state
+       * was updated. Otherwise the transition did not complete.
+       *
+       * In a transition, a router first determines which routes are involved by beginning
+       * with the current route, up the route tree to the first parent route that is shared
+       * with the destination route, and back down the tree to the destination route. The
+       * willTransitionFrom hook is invoked on all route handlers we're transitioning away
+       * from, in reverse nesting order. Likewise, the willTransitionTo hook is invoked on
+       * all route handlers we're transitioning to.
+       *
+       * Both willTransitionFrom and willTransitionTo hooks may either abort or redirect the
+       * transition. To resolve asynchronously, they may use the callback argument. If no
+       * hooks wait, the transition is fully synchronous.
+       */
+      dispatch: function dispatch(path, action) {
+        Router.cancelPendingTransition();
+
+        var prevPath = state.path;
+        var isRefreshing = action == null;
+
+        if (prevPath === path && !isRefreshing) {
+          return;
+        } // Nothing to do!
+
+        // Record the scroll position as early as possible to
+        // get it before browsers try update it automatically.
+        if (prevPath && action === LocationActions.PUSH) Router.recordScrollPosition(prevPath);
+
+        var match = Router.match(path);
+
+        warning(match != null, 'No route matches path "%s". Make sure you have <Route path="%s"> somewhere in your routes', path, path);
+
+        if (match == null) match = {};
+
+        var prevRoutes = state.routes || [];
+        var prevParams = state.params || {};
+        var prevQuery = state.query || {};
+
+        var nextRoutes = match.routes || [];
+        var nextParams = match.params || {};
+        var nextQuery = match.query || {};
+
+        var fromRoutes, toRoutes;
+        if (prevRoutes.length) {
+          fromRoutes = prevRoutes.filter(function (route) {
+            return !hasMatch(nextRoutes, route, prevParams, nextParams, prevQuery, nextQuery);
+          });
+
+          toRoutes = nextRoutes.filter(function (route) {
+            return !hasMatch(prevRoutes, route, prevParams, nextParams, prevQuery, nextQuery);
+          });
+        } else {
+          fromRoutes = [];
+          toRoutes = nextRoutes;
+        }
+
+        var transition = new Transition(path, Router.replaceWith.bind(Router, path));
+        pendingTransition = transition;
+
+        var fromComponents = mountedComponents.slice(prevRoutes.length - fromRoutes.length);
+
+        Transition.from(transition, fromRoutes, fromComponents, function (error) {
+          if (error || transition.abortReason) return dispatchHandler.call(Router, error, transition); // No need to continue.
+
+          Transition.to(transition, toRoutes, nextParams, nextQuery, function (error) {
+            dispatchHandler.call(Router, error, transition, {
+              path: path,
+              action: action,
+              pathname: match.pathname,
+              routes: nextRoutes,
+              params: nextParams,
+              query: nextQuery
+            });
+          });
+        });
+      },
+
+      /**
+       * Starts this router and calls callback(router, state) when the route changes.
+       *
+       * If the router's location is static (i.e. a URL path in a server environment)
+       * the callback is called only once. Otherwise, the location should be one of the
+       * Router.*Location objects (e.g. Router.HashLocation or Router.HistoryLocation).
+       */
+      run: function run(callback) {
+        invariant(!Router.isRunning, 'Router is already running');
+
+        dispatchHandler = function (error, transition, newState) {
+          if (error) Router.handleError(error);
+
+          if (pendingTransition !== transition) return;
+
+          pendingTransition = null;
+
+          if (transition.abortReason) {
+            Router.handleAbort(transition.abortReason);
+          } else {
+            callback.call(Router, Router, nextState = newState);
+          }
+        };
+
+        if (!(location instanceof StaticLocation)) {
+          if (location.addChangeListener) location.addChangeListener(Router.handleLocationChange);
+
+          Router.isRunning = true;
+        }
+
+        // Bootstrap using the current path.
+        Router.refresh();
+      },
+
+      refresh: function refresh() {
+        Router.dispatch(location.getCurrentPath(), null);
+      },
+
+      stop: function stop() {
+        Router.cancelPendingTransition();
+
+        if (location.removeChangeListener) location.removeChangeListener(Router.handleLocationChange);
+
+        Router.isRunning = false;
+      },
+
+      getLocation: function getLocation() {
+        return location;
+      },
+
+      getScrollBehavior: function getScrollBehavior() {
+        return scrollBehavior;
+      },
+
+      getRouteAtDepth: function getRouteAtDepth(routeDepth) {
+        var routes = state.routes;
+        return routes && routes[routeDepth];
+      },
+
+      setRouteComponentAtDepth: function setRouteComponentAtDepth(routeDepth, component) {
+        mountedComponents[routeDepth] = component;
+      },
+
+      /**
+       * Returns the current URL path + query string.
+       */
+      getCurrentPath: function getCurrentPath() {
+        return state.path;
+      },
+
+      /**
+       * Returns the current URL path without the query string.
+       */
+      getCurrentPathname: function getCurrentPathname() {
+        return state.pathname;
+      },
+
+      /**
+       * Returns an object of the currently active URL parameters.
+       */
+      getCurrentParams: function getCurrentParams() {
+        return state.params;
+      },
+
+      /**
+       * Returns an object of the currently active query parameters.
+       */
+      getCurrentQuery: function getCurrentQuery() {
+        return state.query;
+      },
+
+      /**
+       * Returns an array of the currently active routes.
+       */
+      getCurrentRoutes: function getCurrentRoutes() {
+        return state.routes;
+      },
+
+      /**
+       * Returns true if the given route, params, and query are active.
+       */
+      isActive: function isActive(to, params, query) {
+        if (PathUtils.isAbsolute(to)) {
+          return to === state.path;
+        }return routeIsActive(state.routes, to) && paramsAreActive(state.params, params) && (query == null || queryIsActive(state.query, query));
+      }
+
+    },
+
+    mixins: [ScrollHistory],
+
+    propTypes: {
+      children: PropTypes.falsy
+    },
+
+    childContextTypes: {
+      routeDepth: PropTypes.number.isRequired,
+      router: PropTypes.router.isRequired
+    },
+
+    getChildContext: function getChildContext() {
+      return {
+        routeDepth: 1,
+        router: Router
+      };
+    },
+
+    getInitialState: function getInitialState() {
+      return state = nextState;
+    },
+
+    componentWillReceiveProps: function componentWillReceiveProps() {
+      this.setState(state = nextState);
+    },
+
+    componentWillUnmount: function componentWillUnmount() {
+      Router.stop();
+    },
+
+    render: function render() {
+      var route = Router.getRouteAtDepth(0);
+      return route ? React.createElement(route.handler, this.props) : null;
+    }
+
+  });
+
+  Router.clearAllRoutes();
+
+  if (options.routes) Router.addRoutes(options.routes);
+
+  return Router;
+}
+
+module.exports = createRouter;
+}).call(this,require('_process'))
+},{"./Cancellation":159,"./History":160,"./Match":161,"./PathUtils":163,"./PropTypes":164,"./Redirect":165,"./Route":166,"./ScrollHistory":167,"./Transition":169,"./actions/LocationActions":170,"./behaviors/ImitateBrowserBehavior":171,"./createRoutesFromReactChildren":181,"./isReactChildren":184,"./locations/HashLocation":185,"./locations/HistoryLocation":186,"./locations/RefreshLocation":187,"./locations/StaticLocation":188,"./supportsHistory":191,"_process":158,"react":352,"react/lib/ExecutionEnvironment":217,"react/lib/invariant":332,"react/lib/warning":351}],181:[function(require,module,exports){
+/* jshint -W084 */
+'use strict';
+
+var React = require('react');
+var assign = require('react/lib/Object.assign');
+var warning = require('react/lib/warning');
+var DefaultRoute = require('./components/DefaultRoute');
+var NotFoundRoute = require('./components/NotFoundRoute');
+var Redirect = require('./components/Redirect');
+var Route = require('./Route');
+
+function checkPropTypes(componentName, propTypes, props) {
+  componentName = componentName || 'UnknownComponent';
+
+  for (var propName in propTypes) {
+    if (propTypes.hasOwnProperty(propName)) {
+      var error = propTypes[propName](props, propName, componentName);
+
+      if (error instanceof Error) warning(false, error.message);
+    }
+  }
+}
+
+function createRouteOptions(props) {
+  var options = assign({}, props);
+  var handler = options.handler;
+
+  if (handler) {
+    options.onEnter = handler.willTransitionTo;
+    options.onLeave = handler.willTransitionFrom;
+  }
+
+  return options;
+}
+
+function createRouteFromReactElement(element) {
+  if (!React.isValidElement(element)) {
+    return;
+  }var type = element.type;
+  var props = assign({}, type.defaultProps, element.props);
+
+  if (type.propTypes) checkPropTypes(type.displayName, type.propTypes, props);
+
+  if (type === DefaultRoute) {
+    return Route.createDefaultRoute(createRouteOptions(props));
+  }if (type === NotFoundRoute) {
+    return Route.createNotFoundRoute(createRouteOptions(props));
+  }if (type === Redirect) {
+    return Route.createRedirect(createRouteOptions(props));
+  }return Route.createRoute(createRouteOptions(props), function () {
+    if (props.children) createRoutesFromReactChildren(props.children);
+  });
+}
+
+/**
+ * Creates and returns an array of routes created from the given
+ * ReactChildren, all of which should be one of <Route>, <DefaultRoute>,
+ * <NotFoundRoute>, or <Redirect>, e.g.:
+ *
+ *   var { createRoutesFromReactChildren, Route, Redirect } = require('react-router');
+ *
+ *   var routes = createRoutesFromReactChildren(
+ *     <Route path="/" handler={App}>
+ *       <Route name="user" path="/user/:userId" handler={User}>
+ *         <Route name="task" path="tasks/:taskId" handler={Task}/>
+ *         <Redirect from="todos/:taskId" to="task"/>
+ *       </Route>
+ *     </Route>
+ *   );
+ */
+function createRoutesFromReactChildren(children) {
+  var routes = [];
+
+  React.Children.forEach(children, function (child) {
+    if (child = createRouteFromReactElement(child)) routes.push(child);
+  });
+
+  return routes;
+}
+
+module.exports = createRoutesFromReactChildren;
+},{"./Route":166,"./components/DefaultRoute":174,"./components/NotFoundRoute":176,"./components/Redirect":177,"react":352,"react/lib/Object.assign":223,"react/lib/warning":351}],182:[function(require,module,exports){
+'use strict';
+
+var invariant = require('react/lib/invariant');
+var canUseDOM = require('react/lib/ExecutionEnvironment').canUseDOM;
+
+/**
+ * Returns the current scroll position of the window as { x, y }.
+ */
+function getWindowScrollPosition() {
+  invariant(canUseDOM, 'Cannot get current scroll position without a DOM');
+
+  return {
+    x: window.pageXOffset || document.documentElement.scrollLeft,
+    y: window.pageYOffset || document.documentElement.scrollTop
+  };
+}
+
+module.exports = getWindowScrollPosition;
+},{"react/lib/ExecutionEnvironment":217,"react/lib/invariant":332}],183:[function(require,module,exports){
+'use strict';
+
+exports.DefaultRoute = require('./components/DefaultRoute');
+exports.Link = require('./components/Link');
+exports.NotFoundRoute = require('./components/NotFoundRoute');
+exports.Redirect = require('./components/Redirect');
+exports.Route = require('./components/Route');
+exports.ActiveHandler = require('./components/RouteHandler');
+exports.RouteHandler = exports.ActiveHandler;
+
+exports.HashLocation = require('./locations/HashLocation');
+exports.HistoryLocation = require('./locations/HistoryLocation');
+exports.RefreshLocation = require('./locations/RefreshLocation');
+exports.StaticLocation = require('./locations/StaticLocation');
+exports.TestLocation = require('./locations/TestLocation');
+
+exports.ImitateBrowserBehavior = require('./behaviors/ImitateBrowserBehavior');
+exports.ScrollToTopBehavior = require('./behaviors/ScrollToTopBehavior');
+
+exports.History = require('./History');
+exports.Navigation = require('./Navigation');
+exports.State = require('./State');
+
+exports.createRoute = require('./Route').createRoute;
+exports.createDefaultRoute = require('./Route').createDefaultRoute;
+exports.createNotFoundRoute = require('./Route').createNotFoundRoute;
+exports.createRedirect = require('./Route').createRedirect;
+exports.createRoutesFromReactChildren = require('./createRoutesFromReactChildren');
+
+exports.create = require('./createRouter');
+exports.run = require('./runRouter');
+},{"./History":160,"./Navigation":162,"./Route":166,"./State":168,"./behaviors/ImitateBrowserBehavior":171,"./behaviors/ScrollToTopBehavior":172,"./components/DefaultRoute":174,"./components/Link":175,"./components/NotFoundRoute":176,"./components/Redirect":177,"./components/Route":178,"./components/RouteHandler":179,"./createRouter":180,"./createRoutesFromReactChildren":181,"./locations/HashLocation":185,"./locations/HistoryLocation":186,"./locations/RefreshLocation":187,"./locations/StaticLocation":188,"./locations/TestLocation":189,"./runRouter":190}],184:[function(require,module,exports){
+'use strict';
+
+var React = require('react');
+
+function isValidChild(object) {
+  return object == null || React.isValidElement(object);
+}
+
+function isReactChildren(object) {
+  return isValidChild(object) || Array.isArray(object) && object.every(isValidChild);
+}
+
+module.exports = isReactChildren;
+},{"react":352}],185:[function(require,module,exports){
+'use strict';
+
+var LocationActions = require('../actions/LocationActions');
+var History = require('../History');
+
+var _listeners = [];
+var _isListening = false;
+var _actionType;
+
+function notifyChange(type) {
+  if (type === LocationActions.PUSH) History.length += 1;
+
+  var change = {
+    path: HashLocation.getCurrentPath(),
+    type: type
+  };
+
+  _listeners.forEach(function (listener) {
+    listener.call(HashLocation, change);
+  });
+}
+
+function ensureSlash() {
+  var path = HashLocation.getCurrentPath();
+
+  if (path.charAt(0) === '/') {
+    return true;
+  }HashLocation.replace('/' + path);
+
+  return false;
+}
+
+function onHashChange() {
+  if (ensureSlash()) {
+    // If we don't have an _actionType then all we know is the hash
+    // changed. It was probably caused by the user clicking the Back
+    // button, but may have also been the Forward button or manual
+    // manipulation. So just guess 'pop'.
+    var curActionType = _actionType;
+    _actionType = null;
+    notifyChange(curActionType || LocationActions.POP);
+  }
+}
+
+/**
+ * A Location that uses `window.location.hash`.
+ */
+var HashLocation = {
+
+  addChangeListener: function addChangeListener(listener) {
+    _listeners.push(listener);
+
+    // Do this BEFORE listening for hashchange.
+    ensureSlash();
+
+    if (!_isListening) {
+      if (window.addEventListener) {
+        window.addEventListener('hashchange', onHashChange, false);
+      } else {
+        window.attachEvent('onhashchange', onHashChange);
+      }
+
+      _isListening = true;
+    }
+  },
+
+  removeChangeListener: function removeChangeListener(listener) {
+    _listeners = _listeners.filter(function (l) {
+      return l !== listener;
+    });
+
+    if (_listeners.length === 0) {
+      if (window.removeEventListener) {
+        window.removeEventListener('hashchange', onHashChange, false);
+      } else {
+        window.removeEvent('onhashchange', onHashChange);
+      }
+
+      _isListening = false;
+    }
+  },
+
+  push: function push(path) {
+    _actionType = LocationActions.PUSH;
+    window.location.hash = path;
+  },
+
+  replace: function replace(path) {
+    _actionType = LocationActions.REPLACE;
+    window.location.replace(window.location.pathname + window.location.search + '#' + path);
+  },
+
+  pop: function pop() {
+    _actionType = LocationActions.POP;
+    History.back();
+  },
+
+  getCurrentPath: function getCurrentPath() {
+    return decodeURI(
+    // We can't use window.location.hash here because it's not
+    // consistent across browsers - Firefox will pre-decode it!
+    window.location.href.split('#')[1] || '');
+  },
+
+  toString: function toString() {
+    return '<HashLocation>';
+  }
+
+};
+
+module.exports = HashLocation;
+},{"../History":160,"../actions/LocationActions":170}],186:[function(require,module,exports){
+'use strict';
+
+var LocationActions = require('../actions/LocationActions');
+var History = require('../History');
+
+var _listeners = [];
+var _isListening = false;
+
+function notifyChange(type) {
+  var change = {
+    path: HistoryLocation.getCurrentPath(),
+    type: type
+  };
+
+  _listeners.forEach(function (listener) {
+    listener.call(HistoryLocation, change);
+  });
+}
+
+function onPopState(event) {
+  if (event.state === undefined) {
+    return;
+  } // Ignore extraneous popstate events in WebKit.
+
+  notifyChange(LocationActions.POP);
+}
+
+/**
+ * A Location that uses HTML5 history.
+ */
+var HistoryLocation = {
+
+  addChangeListener: function addChangeListener(listener) {
+    _listeners.push(listener);
+
+    if (!_isListening) {
+      if (window.addEventListener) {
+        window.addEventListener('popstate', onPopState, false);
+      } else {
+        window.attachEvent('onpopstate', onPopState);
+      }
+
+      _isListening = true;
+    }
+  },
+
+  removeChangeListener: function removeChangeListener(listener) {
+    _listeners = _listeners.filter(function (l) {
+      return l !== listener;
+    });
+
+    if (_listeners.length === 0) {
+      if (window.addEventListener) {
+        window.removeEventListener('popstate', onPopState, false);
+      } else {
+        window.removeEvent('onpopstate', onPopState);
+      }
+
+      _isListening = false;
+    }
+  },
+
+  push: function push(path) {
+    window.history.pushState({ path: path }, '', path);
+    History.length += 1;
+    notifyChange(LocationActions.PUSH);
+  },
+
+  replace: function replace(path) {
+    window.history.replaceState({ path: path }, '', path);
+    notifyChange(LocationActions.REPLACE);
+  },
+
+  pop: History.back,
+
+  getCurrentPath: function getCurrentPath() {
+    return decodeURI(window.location.pathname + window.location.search);
+  },
+
+  toString: function toString() {
+    return '<HistoryLocation>';
+  }
+
+};
+
+module.exports = HistoryLocation;
+},{"../History":160,"../actions/LocationActions":170}],187:[function(require,module,exports){
+'use strict';
+
+var HistoryLocation = require('./HistoryLocation');
+var History = require('../History');
+
+/**
+ * A Location that uses full page refreshes. This is used as
+ * the fallback for HistoryLocation in browsers that do not
+ * support the HTML5 history API.
+ */
+var RefreshLocation = {
+
+  push: function push(path) {
+    window.location = path;
+  },
+
+  replace: function replace(path) {
+    window.location.replace(path);
+  },
+
+  pop: History.back,
+
+  getCurrentPath: HistoryLocation.getCurrentPath,
+
+  toString: function toString() {
+    return '<RefreshLocation>';
+  }
+
+};
+
+module.exports = RefreshLocation;
+},{"../History":160,"./HistoryLocation":186}],188:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+
+var invariant = require('react/lib/invariant');
+
+function throwCannotModify() {
+  invariant(false, 'You cannot modify a static location');
+}
+
+/**
+ * A location that only ever contains a single path. Useful in
+ * stateless environments like servers where there is no path history,
+ * only the path that was used in the request.
+ */
+
+var StaticLocation = (function () {
+  function StaticLocation(path) {
+    _classCallCheck(this, StaticLocation);
+
+    this.path = path;
+  }
+
+  _createClass(StaticLocation, [{
+    key: 'getCurrentPath',
+    value: function getCurrentPath() {
+      return this.path;
+    }
+  }, {
+    key: 'toString',
+    value: function toString() {
+      return '<StaticLocation path="' + this.path + '">';
+    }
+  }]);
+
+  return StaticLocation;
+})();
+
+// TODO: Include these in the above class definition
+// once we can use ES7 property initializers.
+// https://github.com/babel/babel/issues/619
+
+StaticLocation.prototype.push = throwCannotModify;
+StaticLocation.prototype.replace = throwCannotModify;
+StaticLocation.prototype.pop = throwCannotModify;
+
+module.exports = StaticLocation;
+},{"react/lib/invariant":332}],189:[function(require,module,exports){
+'use strict';
+
+var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } };
+
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+
+var invariant = require('react/lib/invariant');
+var LocationActions = require('../actions/LocationActions');
+var History = require('../History');
+
+/**
+ * A location that is convenient for testing and does not require a DOM.
+ */
+
+var TestLocation = (function () {
+  function TestLocation(history) {
+    _classCallCheck(this, TestLocation);
+
+    this.history = history || [];
+    this.listeners = [];
+    this._updateHistoryLength();
+  }
+
+  _createClass(TestLocation, [{
+    key: 'needsDOM',
+    get: function () {
+      return false;
+    }
+  }, {
+    key: '_updateHistoryLength',
+    value: function _updateHistoryLength() {
+      History.length = this.history.length;
+    }
+  }, {
+    key: '_notifyChange',
+    value: function _notifyChange(type) {
+      var change = {
+        path: this.getCurrentPath(),
+        type: type
+      };
+
+      for (var i = 0, len = this.listeners.length; i < len; ++i) this.listeners[i].call(this, change);
+    }
+  }, {
+    key: 'addChangeListener',
+    value: function addChangeListener(listener) {
+      this.listeners.push(listener);
+    }
+  }, {
+    key: 'removeChangeListener',
+    value: function removeChangeListener(listener) {
+      this.listeners = this.listeners.filter(function (l) {
+        return l !== listener;
+      });
+    }
+  }, {
+    key: 'push',
+    value: function push(path) {
+      this.history.push(path);
+      this._updateHistoryLength();
+      this._notifyChange(LocationActions.PUSH);
+    }
+  }, {
+    key: 'replace',
+    value: function replace(path) {
+      invariant(this.history.length, 'You cannot replace the current path with no history');
+
+      this.history[this.history.length - 1] = path;
+
+      this._notifyChange(LocationActions.REPLACE);
+    }
+  }, {
+    key: 'pop',
+    value: function pop() {
+      this.history.pop();
+      this._updateHistoryLength();
+      this._notifyChange(LocationActions.POP);
+    }
+  }, {
+    key: 'getCurrentPath',
+    value: function getCurrentPath() {
+      return this.history[this.history.length - 1];
+    }
+  }, {
+    key: 'toString',
+    value: function toString() {
+      return '<TestLocation>';
+    }
+  }]);
+
+  return TestLocation;
+})();
+
+module.exports = TestLocation;
+},{"../History":160,"../actions/LocationActions":170,"react/lib/invariant":332}],190:[function(require,module,exports){
+'use strict';
+
+var createRouter = require('./createRouter');
+
+/**
+ * A high-level convenience method that creates, configures, and
+ * runs a router in one shot. The method signature is:
+ *
+ *   Router.run(routes[, location ], callback);
+ *
+ * Using `window.location.hash` to manage the URL, you could do:
+ *
+ *   Router.run(routes, function (Handler) {
+ *     React.render(<Handler/>, document.body);
+ *   });
+ * 
+ * Using HTML5 history and a custom "cursor" prop:
+ * 
+ *   Router.run(routes, Router.HistoryLocation, function (Handler) {
+ *     React.render(<Handler cursor={cursor}/>, document.body);
+ *   });
+ *
+ * Returns the newly created router.
+ *
+ * Note: If you need to specify further options for your router such
+ * as error/abort handling or custom scroll behavior, use Router.create
+ * instead.
+ *
+ *   var router = Router.create(options);
+ *   router.run(function (Handler) {
+ *     // ...
+ *   });
+ */
+function runRouter(routes, location, callback) {
+  if (typeof location === 'function') {
+    callback = location;
+    location = null;
+  }
+
+  var router = createRouter({
+    routes: routes,
+    location: location
+  });
+
+  router.run(callback);
+
+  return router;
+}
+
+module.exports = runRouter;
+},{"./createRouter":180}],191:[function(require,module,exports){
+'use strict';
+
+function supportsHistory() {
+  /*! taken from modernizr
+   * https://github.com/Modernizr/Modernizr/blob/master/LICENSE
+   * https://github.com/Modernizr/Modernizr/blob/master/feature-detects/history.js
+   * changed to avoid false negatives for Windows Phones: https://github.com/rackt/react-router/issues/586
+   */
+  var ua = navigator.userAgent;
+  if ((ua.indexOf('Android 2.') !== -1 || ua.indexOf('Android 4.0') !== -1) && ua.indexOf('Mobile Safari') !== -1 && ua.indexOf('Chrome') === -1 && ua.indexOf('Windows Phone') === -1) {
+    return false;
+  }
+  return window.history && 'pushState' in window.history;
+}
+
+module.exports = supportsHistory;
+},{}],192:[function(require,module,exports){
+'use strict';
+
+function ToObject(val) {
+	if (val == null) {
+		throw new TypeError('Object.assign cannot be called with null or undefined');
+	}
+
+	return Object(val);
+}
+
+module.exports = Object.assign || function (target, source) {
+	var from;
+	var keys;
+	var to = ToObject(target);
+
+	for (var s = 1; s < arguments.length; s++) {
+		from = arguments[s];
+		keys = Object.keys(Object(from));
+
+		for (var i = 0; i < keys.length; i++) {
+			to[keys[i]] = from[keys[i]];
+		}
+	}
+
+	return to;
+};
+
+},{}],193:[function(require,module,exports){
+module.exports = require('./lib/');
+
+},{"./lib/":194}],194:[function(require,module,exports){
+// Load modules
+
+var Stringify = require('./stringify');
+var Parse = require('./parse');
+
+
+// Declare internals
+
+var internals = {};
+
+
+module.exports = {
+    stringify: Stringify,
+    parse: Parse
+};
+
+},{"./parse":195,"./stringify":196}],195:[function(require,module,exports){
+// Load modules
+
+var Utils = require('./utils');
+
+
+// Declare internals
+
+var internals = {
+    delimiter: '&',
+    depth: 5,
+    arrayLimit: 20,
+    parameterLimit: 1000
+};
+
+
+internals.parseValues = function (str, options) {
+
+    var obj = {};
+    var parts = str.split(options.delimiter, options.parameterLimit === Infinity ? undefined : options.parameterLimit);
+
+    for (var i = 0, il = parts.length; i < il; ++i) {
+        var part = parts[i];
+        var pos = part.indexOf(']=') === -1 ? part.indexOf('=') : part.indexOf(']=') + 1;
+
+        if (pos === -1) {
+            obj[Utils.decode(part)] = '';
+        }
+        else {
+            var key = Utils.decode(part.slice(0, pos));
+            var val = Utils.decode(part.slice(pos + 1));
+
+            if (Object.prototype.hasOwnProperty(key)) {
+                continue;
+            }
+
+            if (!obj.hasOwnProperty(key)) {
+                obj[key] = val;
+            }
+            else {
+                obj[key] = [].concat(obj[key]).concat(val);
+            }
+        }
+    }
+
+    return obj;
+};
+
+
+internals.parseObject = function (chain, val, options) {
+
+    if (!chain.length) {
+        return val;
+    }
+
+    var root = chain.shift();
+
+    var obj = {};
+    if (root === '[]') {
+        obj = [];
+        obj = obj.concat(internals.parseObject(chain, val, options));
+    }
+    else {
+        var cleanRoot = root[0] === '[' && root[root.length - 1] === ']' ? root.slice(1, root.length - 1) : root;
+        var index = parseInt(cleanRoot, 10);
+        var indexString = '' + index;
+        if (!isNaN(index) &&
+            root !== cleanRoot &&
+            indexString === cleanRoot &&
+            index >= 0 &&
+            index <= options.arrayLimit) {
+
+            obj = [];
+            obj[index] = internals.parseObject(chain, val, options);
+        }
+        else {
+            obj[cleanRoot] = internals.parseObject(chain, val, options);
+        }
+    }
+
+    return obj;
+};
+
+
+internals.parseKeys = function (key, val, options) {
+
+    if (!key) {
+        return;
+    }
+
+    // The regex chunks
+
+    var parent = /^([^\[\]]*)/;
+    var child = /(\[[^\[\]]*\])/g;
+
+    // Get the parent
+
+    var segment = parent.exec(key);
+
+    // Don't allow them to overwrite object prototype properties
+
+    if (Object.prototype.hasOwnProperty(segment[1])) {
+        return;
+    }
+
+    // Stash the parent if it exists
+
+    var keys = [];
+    if (segment[1]) {
+        keys.push(segment[1]);
+    }
+
+    // Loop through children appending to the array until we hit depth
+
+    var i = 0;
+    while ((segment = child.exec(key)) !== null && i < options.depth) {
+
+        ++i;
+        if (!Object.prototype.hasOwnProperty(segment[1].replace(/\[|\]/g, ''))) {
+            keys.push(segment[1]);
+        }
+    }
+
+    // If there's a remainder, just add whatever is left
+
+    if (segment) {
+        keys.push('[' + key.slice(segment.index) + ']');
+    }
+
+    return internals.parseObject(keys, val, options);
+};
+
+
+module.exports = function (str, options) {
+
+    if (str === '' ||
+        str === null ||
+        typeof str === 'undefined') {
+
+        return {};
+    }
+
+    options = options || {};
+    options.delimiter = typeof options.delimiter === 'string' || Utils.isRegExp(options.delimiter) ? options.delimiter : internals.delimiter;
+    options.depth = typeof options.depth === 'number' ? options.depth : internals.depth;
+    options.arrayLimit = typeof options.arrayLimit === 'number' ? options.arrayLimit : internals.arrayLimit;
+    options.parameterLimit = typeof options.parameterLimit === 'number' ? options.parameterLimit : internals.parameterLimit;
+
+    var tempObj = typeof str === 'string' ? internals.parseValues(str, options) : str;
+    var obj = {};
+
+    // Iterate over the keys and setup the new object
+
+    var keys = Object.keys(tempObj);
+    for (var i = 0, il = keys.length; i < il; ++i) {
+        var key = keys[i];
+        var newObj = internals.parseKeys(key, tempObj[key], options);
+        obj = Utils.merge(obj, newObj);
+    }
+
+    return Utils.compact(obj);
+};
+
+},{"./utils":197}],196:[function(require,module,exports){
+// Load modules
+
+var Utils = require('./utils');
+
+
+// Declare internals
+
+var internals = {
+    delimiter: '&',
+    arrayPrefixGenerators: {
+        brackets: function (prefix, key) {
+            return prefix + '[]';
+        },
+        indices: function (prefix, key) {
+            return prefix + '[' + key + ']';
+        },
+        repeat: function (prefix, key) {
+            return prefix;
+        }
+    }
+};
+
+
+internals.stringify = function (obj, prefix, generateArrayPrefix) {
+
+    if (Utils.isBuffer(obj)) {
+        obj = obj.toString();
+    }
+    else if (obj instanceof Date) {
+        obj = obj.toISOString();
+    }
+    else if (obj === null) {
+        obj = '';
+    }
+
+    if (typeof obj === 'string' ||
+        typeof obj === 'number' ||
+        typeof obj === 'boolean') {
+
+        return [encodeURIComponent(prefix) + '=' + encodeURIComponent(obj)];
+    }
+
+    var values = [];
+
+    if (typeof obj === 'undefined') {
+        return values;
+    }
+
+    var objKeys = Object.keys(obj);
+    for (var i = 0, il = objKeys.length; i < il; ++i) {
+        var key = objKeys[i];
+        if (Array.isArray(obj)) {
+            values = values.concat(internals.stringify(obj[key], generateArrayPrefix(prefix, key), generateArrayPrefix));
+        }
+        else {
+            values = values.concat(internals.stringify(obj[key], prefix + '[' + key + ']', generateArrayPrefix));
+        }
+    }
+
+    return values;
+};
+
+
+module.exports = function (obj, options) {
+
+    options = options || {};
+    var delimiter = typeof options.delimiter === 'undefined' ? internals.delimiter : options.delimiter;
+
+    var keys = [];
+
+    if (typeof obj !== 'object' ||
+        obj === null) {
+
+        return '';
+    }
+
+    var arrayFormat;
+    if (options.arrayFormat in internals.arrayPrefixGenerators) {
+        arrayFormat = options.arrayFormat;
+    }
+    else if ('indices' in options) {
+        arrayFormat = options.indices ? 'indices' : 'repeat';
+    }
+    else {
+        arrayFormat = 'indices';
+    }
+
+    var generateArrayPrefix = internals.arrayPrefixGenerators[arrayFormat];
+
+    var objKeys = Object.keys(obj);
+    for (var i = 0, il = objKeys.length; i < il; ++i) {
+        var key = objKeys[i];
+        keys = keys.concat(internals.stringify(obj[key], key, generateArrayPrefix));
+    }
+
+    return keys.join(delimiter);
+};
+
+},{"./utils":197}],197:[function(require,module,exports){
+// Load modules
+
+
+// Declare internals
+
+var internals = {};
+
+
+exports.arrayToObject = function (source) {
+
+    var obj = {};
+    for (var i = 0, il = source.length; i < il; ++i) {
+        if (typeof source[i] !== 'undefined') {
+
+            obj[i] = source[i];
+        }
+    }
+
+    return obj;
+};
+
+
+exports.merge = function (target, source) {
+
+    if (!source) {
+        return target;
+    }
+
+    if (typeof source !== 'object') {
+        if (Array.isArray(target)) {
+            target.push(source);
+        }
+        else {
+            target[source] = true;
+        }
+
+        return target;
+    }
+
+    if (typeof target !== 'object') {
+        target = [target].concat(source);
+        return target;
+    }
+
+    if (Array.isArray(target) &&
+        !Array.isArray(source)) {
+
+        target = exports.arrayToObject(target);
+    }
+
+    var keys = Object.keys(source);
+    for (var k = 0, kl = keys.length; k < kl; ++k) {
+        var key = keys[k];
+        var value = source[key];
+
+        if (!target[key]) {
+            target[key] = value;
+        }
+        else {
+            target[key] = exports.merge(target[key], value);
+        }
+    }
+
+    return target;
+};
+
+
+exports.decode = function (str) {
+
+    try {
+        return decodeURIComponent(str.replace(/\+/g, ' '));
+    } catch (e) {
+        return str;
+    }
+};
+
+
+exports.compact = function (obj, refs) {
+
+    if (typeof obj !== 'object' ||
+        obj === null) {
+
+        return obj;
+    }
+
+    refs = refs || [];
+    var lookup = refs.indexOf(obj);
+    if (lookup !== -1) {
+        return refs[lookup];
+    }
+
+    refs.push(obj);
+
+    if (Array.isArray(obj)) {
+        var compacted = [];
+
+        for (var i = 0, il = obj.length; i < il; ++i) {
+            if (typeof obj[i] !== 'undefined') {
+                compacted.push(obj[i]);
+            }
+        }
+
+        return compacted;
+    }
+
+    var keys = Object.keys(obj);
+    for (i = 0, il = keys.length; i < il; ++i) {
+        var key = keys[i];
+        obj[key] = exports.compact(obj[key], refs);
+    }
+
+    return obj;
+};
+
+
+exports.isRegExp = function (obj) {
+    return Object.prototype.toString.call(obj) === '[object RegExp]';
+};
+
+
+exports.isBuffer = function (obj) {
+
+    if (obj === null ||
+        typeof obj === 'undefined') {
+
+        return false;
+    }
+
+    return !!(obj.constructor &&
+        obj.constructor.isBuffer &&
+        obj.constructor.isBuffer(obj));
+};
+
+},{}],198:[function(require,module,exports){
 arguments[4][1][0].apply(exports,arguments)
-},{"./focusNode":277,"dup":1}],160:[function(require,module,exports){
+},{"./focusNode":316,"dup":1}],199:[function(require,module,exports){
 arguments[4][2][0].apply(exports,arguments)
-},{"./EventConstants":172,"./EventPropagators":177,"./ExecutionEnvironment":178,"./FallbackCompositionState":179,"./SyntheticCompositionEvent":251,"./SyntheticInputEvent":255,"./keyOf":299,"dup":2}],161:[function(require,module,exports){
+},{"./EventConstants":211,"./EventPropagators":216,"./ExecutionEnvironment":217,"./FallbackCompositionState":218,"./SyntheticCompositionEvent":290,"./SyntheticInputEvent":294,"./keyOf":338,"dup":2}],200:[function(require,module,exports){
 arguments[4][3][0].apply(exports,arguments)
-},{"dup":3}],162:[function(require,module,exports){
+},{"dup":3}],201:[function(require,module,exports){
 arguments[4][4][0].apply(exports,arguments)
-},{"./CSSProperty":161,"./ExecutionEnvironment":178,"./camelizeStyleName":266,"./dangerousStyleValue":271,"./hyphenateStyleName":291,"./memoizeStringOnly":301,"./warning":312,"_process":158,"dup":4}],163:[function(require,module,exports){
+},{"./CSSProperty":200,"./ExecutionEnvironment":217,"./camelizeStyleName":305,"./dangerousStyleValue":310,"./hyphenateStyleName":330,"./memoizeStringOnly":340,"./warning":351,"_process":158,"dup":4}],202:[function(require,module,exports){
 arguments[4][5][0].apply(exports,arguments)
-},{"./Object.assign":184,"./PooledClass":185,"./invariant":293,"_process":158,"dup":5}],164:[function(require,module,exports){
+},{"./Object.assign":223,"./PooledClass":224,"./invariant":332,"_process":158,"dup":5}],203:[function(require,module,exports){
 arguments[4][6][0].apply(exports,arguments)
-},{"./EventConstants":172,"./EventPluginHub":174,"./EventPropagators":177,"./ExecutionEnvironment":178,"./ReactUpdates":245,"./SyntheticEvent":253,"./isEventSupported":294,"./isTextInputElement":296,"./keyOf":299,"dup":6}],165:[function(require,module,exports){
+},{"./EventConstants":211,"./EventPluginHub":213,"./EventPropagators":216,"./ExecutionEnvironment":217,"./ReactUpdates":284,"./SyntheticEvent":292,"./isEventSupported":333,"./isTextInputElement":335,"./keyOf":338,"dup":6}],204:[function(require,module,exports){
 arguments[4][7][0].apply(exports,arguments)
-},{"dup":7}],166:[function(require,module,exports){
+},{"dup":7}],205:[function(require,module,exports){
 arguments[4][8][0].apply(exports,arguments)
-},{"./Danger":169,"./ReactMultiChildUpdateTypes":230,"./invariant":293,"./setTextContent":307,"_process":158,"dup":8}],167:[function(require,module,exports){
+},{"./Danger":208,"./ReactMultiChildUpdateTypes":269,"./invariant":332,"./setTextContent":346,"_process":158,"dup":8}],206:[function(require,module,exports){
 arguments[4][9][0].apply(exports,arguments)
-},{"./invariant":293,"_process":158,"dup":9}],168:[function(require,module,exports){
+},{"./invariant":332,"_process":158,"dup":9}],207:[function(require,module,exports){
 arguments[4][10][0].apply(exports,arguments)
-},{"./DOMProperty":167,"./quoteAttributeValueForBrowser":305,"./warning":312,"_process":158,"dup":10}],169:[function(require,module,exports){
+},{"./DOMProperty":206,"./quoteAttributeValueForBrowser":344,"./warning":351,"_process":158,"dup":10}],208:[function(require,module,exports){
 arguments[4][11][0].apply(exports,arguments)
-},{"./ExecutionEnvironment":178,"./createNodesFromMarkup":270,"./emptyFunction":272,"./getMarkupWrap":285,"./invariant":293,"_process":158,"dup":11}],170:[function(require,module,exports){
+},{"./ExecutionEnvironment":217,"./createNodesFromMarkup":309,"./emptyFunction":311,"./getMarkupWrap":324,"./invariant":332,"_process":158,"dup":11}],209:[function(require,module,exports){
 arguments[4][12][0].apply(exports,arguments)
-},{"./keyOf":299,"dup":12}],171:[function(require,module,exports){
+},{"./keyOf":338,"dup":12}],210:[function(require,module,exports){
 arguments[4][13][0].apply(exports,arguments)
-},{"./EventConstants":172,"./EventPropagators":177,"./ReactMount":228,"./SyntheticMouseEvent":257,"./keyOf":299,"dup":13}],172:[function(require,module,exports){
+},{"./EventConstants":211,"./EventPropagators":216,"./ReactMount":267,"./SyntheticMouseEvent":296,"./keyOf":338,"dup":13}],211:[function(require,module,exports){
 arguments[4][14][0].apply(exports,arguments)
-},{"./keyMirror":298,"dup":14}],173:[function(require,module,exports){
+},{"./keyMirror":337,"dup":14}],212:[function(require,module,exports){
 arguments[4][15][0].apply(exports,arguments)
-},{"./emptyFunction":272,"_process":158,"dup":15}],174:[function(require,module,exports){
+},{"./emptyFunction":311,"_process":158,"dup":15}],213:[function(require,module,exports){
 arguments[4][16][0].apply(exports,arguments)
-},{"./EventPluginRegistry":175,"./EventPluginUtils":176,"./accumulateInto":263,"./forEachAccumulated":278,"./invariant":293,"_process":158,"dup":16}],175:[function(require,module,exports){
+},{"./EventPluginRegistry":214,"./EventPluginUtils":215,"./accumulateInto":302,"./forEachAccumulated":317,"./invariant":332,"_process":158,"dup":16}],214:[function(require,module,exports){
 arguments[4][17][0].apply(exports,arguments)
-},{"./invariant":293,"_process":158,"dup":17}],176:[function(require,module,exports){
+},{"./invariant":332,"_process":158,"dup":17}],215:[function(require,module,exports){
 arguments[4][18][0].apply(exports,arguments)
-},{"./EventConstants":172,"./invariant":293,"_process":158,"dup":18}],177:[function(require,module,exports){
+},{"./EventConstants":211,"./invariant":332,"_process":158,"dup":18}],216:[function(require,module,exports){
 arguments[4][19][0].apply(exports,arguments)
-},{"./EventConstants":172,"./EventPluginHub":174,"./accumulateInto":263,"./forEachAccumulated":278,"_process":158,"dup":19}],178:[function(require,module,exports){
+},{"./EventConstants":211,"./EventPluginHub":213,"./accumulateInto":302,"./forEachAccumulated":317,"_process":158,"dup":19}],217:[function(require,module,exports){
 arguments[4][20][0].apply(exports,arguments)
-},{"dup":20}],179:[function(require,module,exports){
+},{"dup":20}],218:[function(require,module,exports){
 arguments[4][21][0].apply(exports,arguments)
-},{"./Object.assign":184,"./PooledClass":185,"./getTextContentAccessor":288,"dup":21}],180:[function(require,module,exports){
+},{"./Object.assign":223,"./PooledClass":224,"./getTextContentAccessor":327,"dup":21}],219:[function(require,module,exports){
 arguments[4][22][0].apply(exports,arguments)
-},{"./DOMProperty":167,"./ExecutionEnvironment":178,"dup":22}],181:[function(require,module,exports){
+},{"./DOMProperty":206,"./ExecutionEnvironment":217,"dup":22}],220:[function(require,module,exports){
 arguments[4][23][0].apply(exports,arguments)
-},{"./ReactPropTypes":236,"./invariant":293,"_process":158,"dup":23}],182:[function(require,module,exports){
+},{"./ReactPropTypes":275,"./invariant":332,"_process":158,"dup":23}],221:[function(require,module,exports){
 arguments[4][24][0].apply(exports,arguments)
-},{"./ReactBrowserEventEmitter":188,"./accumulateInto":263,"./forEachAccumulated":278,"./invariant":293,"_process":158,"dup":24}],183:[function(require,module,exports){
+},{"./ReactBrowserEventEmitter":227,"./accumulateInto":302,"./forEachAccumulated":317,"./invariant":332,"_process":158,"dup":24}],222:[function(require,module,exports){
 arguments[4][25][0].apply(exports,arguments)
-},{"./EventConstants":172,"./emptyFunction":272,"dup":25}],184:[function(require,module,exports){
+},{"./EventConstants":211,"./emptyFunction":311,"dup":25}],223:[function(require,module,exports){
 arguments[4][26][0].apply(exports,arguments)
-},{"dup":26}],185:[function(require,module,exports){
+},{"dup":26}],224:[function(require,module,exports){
 arguments[4][27][0].apply(exports,arguments)
-},{"./invariant":293,"_process":158,"dup":27}],186:[function(require,module,exports){
+},{"./invariant":332,"_process":158,"dup":27}],225:[function(require,module,exports){
 arguments[4][28][0].apply(exports,arguments)
-},{"./EventPluginUtils":176,"./ExecutionEnvironment":178,"./Object.assign":184,"./ReactChildren":190,"./ReactClass":191,"./ReactComponent":192,"./ReactContext":196,"./ReactCurrentOwner":197,"./ReactDOM":198,"./ReactDOMTextComponent":209,"./ReactDefaultInjection":212,"./ReactElement":215,"./ReactElementValidator":216,"./ReactInstanceHandles":224,"./ReactMount":228,"./ReactPerf":233,"./ReactPropTypes":236,"./ReactReconciler":239,"./ReactServerRendering":242,"./findDOMNode":275,"./onlyChild":302,"_process":158,"dup":28}],187:[function(require,module,exports){
+},{"./EventPluginUtils":215,"./ExecutionEnvironment":217,"./Object.assign":223,"./ReactChildren":229,"./ReactClass":230,"./ReactComponent":231,"./ReactContext":235,"./ReactCurrentOwner":236,"./ReactDOM":237,"./ReactDOMTextComponent":248,"./ReactDefaultInjection":251,"./ReactElement":254,"./ReactElementValidator":255,"./ReactInstanceHandles":263,"./ReactMount":267,"./ReactPerf":272,"./ReactPropTypes":275,"./ReactReconciler":278,"./ReactServerRendering":281,"./findDOMNode":314,"./onlyChild":341,"_process":158,"dup":28}],226:[function(require,module,exports){
 arguments[4][29][0].apply(exports,arguments)
-},{"./findDOMNode":275,"dup":29}],188:[function(require,module,exports){
+},{"./findDOMNode":314,"dup":29}],227:[function(require,module,exports){
 arguments[4][30][0].apply(exports,arguments)
-},{"./EventConstants":172,"./EventPluginHub":174,"./EventPluginRegistry":175,"./Object.assign":184,"./ReactEventEmitterMixin":219,"./ViewportMetrics":262,"./isEventSupported":294,"dup":30}],189:[function(require,module,exports){
+},{"./EventConstants":211,"./EventPluginHub":213,"./EventPluginRegistry":214,"./Object.assign":223,"./ReactEventEmitterMixin":258,"./ViewportMetrics":301,"./isEventSupported":333,"dup":30}],228:[function(require,module,exports){
 arguments[4][31][0].apply(exports,arguments)
-},{"./ReactReconciler":239,"./flattenChildren":276,"./instantiateReactComponent":292,"./shouldUpdateReactComponent":309,"dup":31}],190:[function(require,module,exports){
+},{"./ReactReconciler":278,"./flattenChildren":315,"./instantiateReactComponent":331,"./shouldUpdateReactComponent":348,"dup":31}],229:[function(require,module,exports){
 arguments[4][32][0].apply(exports,arguments)
-},{"./PooledClass":185,"./ReactFragment":221,"./traverseAllChildren":311,"./warning":312,"_process":158,"dup":32}],191:[function(require,module,exports){
+},{"./PooledClass":224,"./ReactFragment":260,"./traverseAllChildren":350,"./warning":351,"_process":158,"dup":32}],230:[function(require,module,exports){
 arguments[4][33][0].apply(exports,arguments)
-},{"./Object.assign":184,"./ReactComponent":192,"./ReactCurrentOwner":197,"./ReactElement":215,"./ReactErrorUtils":218,"./ReactInstanceMap":225,"./ReactLifeCycle":226,"./ReactPropTypeLocationNames":234,"./ReactPropTypeLocations":235,"./ReactUpdateQueue":244,"./invariant":293,"./keyMirror":298,"./keyOf":299,"./warning":312,"_process":158,"dup":33}],192:[function(require,module,exports){
+},{"./Object.assign":223,"./ReactComponent":231,"./ReactCurrentOwner":236,"./ReactElement":254,"./ReactErrorUtils":257,"./ReactInstanceMap":264,"./ReactLifeCycle":265,"./ReactPropTypeLocationNames":273,"./ReactPropTypeLocations":274,"./ReactUpdateQueue":283,"./invariant":332,"./keyMirror":337,"./keyOf":338,"./warning":351,"_process":158,"dup":33}],231:[function(require,module,exports){
 arguments[4][34][0].apply(exports,arguments)
-},{"./ReactUpdateQueue":244,"./invariant":293,"./warning":312,"_process":158,"dup":34}],193:[function(require,module,exports){
+},{"./ReactUpdateQueue":283,"./invariant":332,"./warning":351,"_process":158,"dup":34}],232:[function(require,module,exports){
 arguments[4][35][0].apply(exports,arguments)
-},{"./ReactDOMIDOperations":202,"./ReactMount":228,"dup":35}],194:[function(require,module,exports){
+},{"./ReactDOMIDOperations":241,"./ReactMount":267,"dup":35}],233:[function(require,module,exports){
 arguments[4][36][0].apply(exports,arguments)
-},{"./invariant":293,"_process":158,"dup":36}],195:[function(require,module,exports){
+},{"./invariant":332,"_process":158,"dup":36}],234:[function(require,module,exports){
 arguments[4][37][0].apply(exports,arguments)
-},{"./Object.assign":184,"./ReactComponentEnvironment":194,"./ReactContext":196,"./ReactCurrentOwner":197,"./ReactElement":215,"./ReactElementValidator":216,"./ReactInstanceMap":225,"./ReactLifeCycle":226,"./ReactNativeComponent":231,"./ReactPerf":233,"./ReactPropTypeLocationNames":234,"./ReactPropTypeLocations":235,"./ReactReconciler":239,"./ReactUpdates":245,"./emptyObject":273,"./invariant":293,"./shouldUpdateReactComponent":309,"./warning":312,"_process":158,"dup":37}],196:[function(require,module,exports){
+},{"./Object.assign":223,"./ReactComponentEnvironment":233,"./ReactContext":235,"./ReactCurrentOwner":236,"./ReactElement":254,"./ReactElementValidator":255,"./ReactInstanceMap":264,"./ReactLifeCycle":265,"./ReactNativeComponent":270,"./ReactPerf":272,"./ReactPropTypeLocationNames":273,"./ReactPropTypeLocations":274,"./ReactReconciler":278,"./ReactUpdates":284,"./emptyObject":312,"./invariant":332,"./shouldUpdateReactComponent":348,"./warning":351,"_process":158,"dup":37}],235:[function(require,module,exports){
 arguments[4][38][0].apply(exports,arguments)
-},{"./Object.assign":184,"./emptyObject":273,"./warning":312,"_process":158,"dup":38}],197:[function(require,module,exports){
+},{"./Object.assign":223,"./emptyObject":312,"./warning":351,"_process":158,"dup":38}],236:[function(require,module,exports){
 arguments[4][39][0].apply(exports,arguments)
-},{"dup":39}],198:[function(require,module,exports){
+},{"dup":39}],237:[function(require,module,exports){
 arguments[4][40][0].apply(exports,arguments)
-},{"./ReactElement":215,"./ReactElementValidator":216,"./mapObject":300,"_process":158,"dup":40}],199:[function(require,module,exports){
+},{"./ReactElement":254,"./ReactElementValidator":255,"./mapObject":339,"_process":158,"dup":40}],238:[function(require,module,exports){
 arguments[4][41][0].apply(exports,arguments)
-},{"./AutoFocusMixin":159,"./ReactBrowserComponentMixin":187,"./ReactClass":191,"./ReactElement":215,"./keyMirror":298,"dup":41}],200:[function(require,module,exports){
+},{"./AutoFocusMixin":198,"./ReactBrowserComponentMixin":226,"./ReactClass":230,"./ReactElement":254,"./keyMirror":337,"dup":41}],239:[function(require,module,exports){
 arguments[4][42][0].apply(exports,arguments)
-},{"./CSSPropertyOperations":162,"./DOMProperty":167,"./DOMPropertyOperations":168,"./Object.assign":184,"./ReactBrowserEventEmitter":188,"./ReactComponentBrowserEnvironment":193,"./ReactMount":228,"./ReactMultiChild":229,"./ReactPerf":233,"./escapeTextContentForBrowser":274,"./invariant":293,"./isEventSupported":294,"./keyOf":299,"./warning":312,"_process":158,"dup":42}],201:[function(require,module,exports){
+},{"./CSSPropertyOperations":201,"./DOMProperty":206,"./DOMPropertyOperations":207,"./Object.assign":223,"./ReactBrowserEventEmitter":227,"./ReactComponentBrowserEnvironment":232,"./ReactMount":267,"./ReactMultiChild":268,"./ReactPerf":272,"./escapeTextContentForBrowser":313,"./invariant":332,"./isEventSupported":333,"./keyOf":338,"./warning":351,"_process":158,"dup":42}],240:[function(require,module,exports){
 arguments[4][43][0].apply(exports,arguments)
-},{"./EventConstants":172,"./LocalEventTrapMixin":182,"./ReactBrowserComponentMixin":187,"./ReactClass":191,"./ReactElement":215,"dup":43}],202:[function(require,module,exports){
+},{"./EventConstants":211,"./LocalEventTrapMixin":221,"./ReactBrowserComponentMixin":226,"./ReactClass":230,"./ReactElement":254,"dup":43}],241:[function(require,module,exports){
 arguments[4][44][0].apply(exports,arguments)
-},{"./CSSPropertyOperations":162,"./DOMChildrenOperations":166,"./DOMPropertyOperations":168,"./ReactMount":228,"./ReactPerf":233,"./invariant":293,"./setInnerHTML":306,"_process":158,"dup":44}],203:[function(require,module,exports){
+},{"./CSSPropertyOperations":201,"./DOMChildrenOperations":205,"./DOMPropertyOperations":207,"./ReactMount":267,"./ReactPerf":272,"./invariant":332,"./setInnerHTML":345,"_process":158,"dup":44}],242:[function(require,module,exports){
 arguments[4][45][0].apply(exports,arguments)
-},{"./EventConstants":172,"./LocalEventTrapMixin":182,"./ReactBrowserComponentMixin":187,"./ReactClass":191,"./ReactElement":215,"dup":45}],204:[function(require,module,exports){
+},{"./EventConstants":211,"./LocalEventTrapMixin":221,"./ReactBrowserComponentMixin":226,"./ReactClass":230,"./ReactElement":254,"dup":45}],243:[function(require,module,exports){
 arguments[4][46][0].apply(exports,arguments)
-},{"./EventConstants":172,"./LocalEventTrapMixin":182,"./ReactBrowserComponentMixin":187,"./ReactClass":191,"./ReactElement":215,"dup":46}],205:[function(require,module,exports){
+},{"./EventConstants":211,"./LocalEventTrapMixin":221,"./ReactBrowserComponentMixin":226,"./ReactClass":230,"./ReactElement":254,"dup":46}],244:[function(require,module,exports){
 arguments[4][47][0].apply(exports,arguments)
-},{"./AutoFocusMixin":159,"./DOMPropertyOperations":168,"./LinkedValueUtils":181,"./Object.assign":184,"./ReactBrowserComponentMixin":187,"./ReactClass":191,"./ReactElement":215,"./ReactMount":228,"./ReactUpdates":245,"./invariant":293,"_process":158,"dup":47}],206:[function(require,module,exports){
+},{"./AutoFocusMixin":198,"./DOMPropertyOperations":207,"./LinkedValueUtils":220,"./Object.assign":223,"./ReactBrowserComponentMixin":226,"./ReactClass":230,"./ReactElement":254,"./ReactMount":267,"./ReactUpdates":284,"./invariant":332,"_process":158,"dup":47}],245:[function(require,module,exports){
 arguments[4][48][0].apply(exports,arguments)
-},{"./ReactBrowserComponentMixin":187,"./ReactClass":191,"./ReactElement":215,"./warning":312,"_process":158,"dup":48}],207:[function(require,module,exports){
+},{"./ReactBrowserComponentMixin":226,"./ReactClass":230,"./ReactElement":254,"./warning":351,"_process":158,"dup":48}],246:[function(require,module,exports){
 arguments[4][49][0].apply(exports,arguments)
-},{"./AutoFocusMixin":159,"./LinkedValueUtils":181,"./Object.assign":184,"./ReactBrowserComponentMixin":187,"./ReactClass":191,"./ReactElement":215,"./ReactUpdates":245,"dup":49}],208:[function(require,module,exports){
+},{"./AutoFocusMixin":198,"./LinkedValueUtils":220,"./Object.assign":223,"./ReactBrowserComponentMixin":226,"./ReactClass":230,"./ReactElement":254,"./ReactUpdates":284,"dup":49}],247:[function(require,module,exports){
 arguments[4][50][0].apply(exports,arguments)
-},{"./ExecutionEnvironment":178,"./getNodeForCharacterOffset":286,"./getTextContentAccessor":288,"dup":50}],209:[function(require,module,exports){
+},{"./ExecutionEnvironment":217,"./getNodeForCharacterOffset":325,"./getTextContentAccessor":327,"dup":50}],248:[function(require,module,exports){
 arguments[4][51][0].apply(exports,arguments)
-},{"./DOMPropertyOperations":168,"./Object.assign":184,"./ReactComponentBrowserEnvironment":193,"./ReactDOMComponent":200,"./escapeTextContentForBrowser":274,"dup":51}],210:[function(require,module,exports){
+},{"./DOMPropertyOperations":207,"./Object.assign":223,"./ReactComponentBrowserEnvironment":232,"./ReactDOMComponent":239,"./escapeTextContentForBrowser":313,"dup":51}],249:[function(require,module,exports){
 arguments[4][52][0].apply(exports,arguments)
-},{"./AutoFocusMixin":159,"./DOMPropertyOperations":168,"./LinkedValueUtils":181,"./Object.assign":184,"./ReactBrowserComponentMixin":187,"./ReactClass":191,"./ReactElement":215,"./ReactUpdates":245,"./invariant":293,"./warning":312,"_process":158,"dup":52}],211:[function(require,module,exports){
+},{"./AutoFocusMixin":198,"./DOMPropertyOperations":207,"./LinkedValueUtils":220,"./Object.assign":223,"./ReactBrowserComponentMixin":226,"./ReactClass":230,"./ReactElement":254,"./ReactUpdates":284,"./invariant":332,"./warning":351,"_process":158,"dup":52}],250:[function(require,module,exports){
 arguments[4][53][0].apply(exports,arguments)
-},{"./Object.assign":184,"./ReactUpdates":245,"./Transaction":261,"./emptyFunction":272,"dup":53}],212:[function(require,module,exports){
+},{"./Object.assign":223,"./ReactUpdates":284,"./Transaction":300,"./emptyFunction":311,"dup":53}],251:[function(require,module,exports){
 arguments[4][54][0].apply(exports,arguments)
-},{"./BeforeInputEventPlugin":160,"./ChangeEventPlugin":164,"./ClientReactRootIndex":165,"./DefaultEventPluginOrder":170,"./EnterLeaveEventPlugin":171,"./ExecutionEnvironment":178,"./HTMLDOMPropertyConfig":180,"./MobileSafariClickEventPlugin":183,"./ReactBrowserComponentMixin":187,"./ReactClass":191,"./ReactComponentBrowserEnvironment":193,"./ReactDOMButton":199,"./ReactDOMComponent":200,"./ReactDOMForm":201,"./ReactDOMIDOperations":202,"./ReactDOMIframe":203,"./ReactDOMImg":204,"./ReactDOMInput":205,"./ReactDOMOption":206,"./ReactDOMSelect":207,"./ReactDOMTextComponent":209,"./ReactDOMTextarea":210,"./ReactDefaultBatchingStrategy":211,"./ReactDefaultPerf":213,"./ReactElement":215,"./ReactEventListener":220,"./ReactInjection":222,"./ReactInstanceHandles":224,"./ReactMount":228,"./ReactReconcileTransaction":238,"./SVGDOMPropertyConfig":246,"./SelectEventPlugin":247,"./ServerReactRootIndex":248,"./SimpleEventPlugin":249,"./createFullPageComponent":269,"_process":158,"dup":54}],213:[function(require,module,exports){
+},{"./BeforeInputEventPlugin":199,"./ChangeEventPlugin":203,"./ClientReactRootIndex":204,"./DefaultEventPluginOrder":209,"./EnterLeaveEventPlugin":210,"./ExecutionEnvironment":217,"./HTMLDOMPropertyConfig":219,"./MobileSafariClickEventPlugin":222,"./ReactBrowserComponentMixin":226,"./ReactClass":230,"./ReactComponentBrowserEnvironment":232,"./ReactDOMButton":238,"./ReactDOMComponent":239,"./ReactDOMForm":240,"./ReactDOMIDOperations":241,"./ReactDOMIframe":242,"./ReactDOMImg":243,"./ReactDOMInput":244,"./ReactDOMOption":245,"./ReactDOMSelect":246,"./ReactDOMTextComponent":248,"./ReactDOMTextarea":249,"./ReactDefaultBatchingStrategy":250,"./ReactDefaultPerf":252,"./ReactElement":254,"./ReactEventListener":259,"./ReactInjection":261,"./ReactInstanceHandles":263,"./ReactMount":267,"./ReactReconcileTransaction":277,"./SVGDOMPropertyConfig":285,"./SelectEventPlugin":286,"./ServerReactRootIndex":287,"./SimpleEventPlugin":288,"./createFullPageComponent":308,"_process":158,"dup":54}],252:[function(require,module,exports){
 arguments[4][55][0].apply(exports,arguments)
-},{"./DOMProperty":167,"./ReactDefaultPerfAnalysis":214,"./ReactMount":228,"./ReactPerf":233,"./performanceNow":304,"dup":55}],214:[function(require,module,exports){
+},{"./DOMProperty":206,"./ReactDefaultPerfAnalysis":253,"./ReactMount":267,"./ReactPerf":272,"./performanceNow":343,"dup":55}],253:[function(require,module,exports){
 arguments[4][56][0].apply(exports,arguments)
-},{"./Object.assign":184,"dup":56}],215:[function(require,module,exports){
+},{"./Object.assign":223,"dup":56}],254:[function(require,module,exports){
 arguments[4][57][0].apply(exports,arguments)
-},{"./Object.assign":184,"./ReactContext":196,"./ReactCurrentOwner":197,"./warning":312,"_process":158,"dup":57}],216:[function(require,module,exports){
+},{"./Object.assign":223,"./ReactContext":235,"./ReactCurrentOwner":236,"./warning":351,"_process":158,"dup":57}],255:[function(require,module,exports){
 arguments[4][58][0].apply(exports,arguments)
-},{"./ReactCurrentOwner":197,"./ReactElement":215,"./ReactFragment":221,"./ReactNativeComponent":231,"./ReactPropTypeLocationNames":234,"./ReactPropTypeLocations":235,"./getIteratorFn":284,"./invariant":293,"./warning":312,"_process":158,"dup":58}],217:[function(require,module,exports){
+},{"./ReactCurrentOwner":236,"./ReactElement":254,"./ReactFragment":260,"./ReactNativeComponent":270,"./ReactPropTypeLocationNames":273,"./ReactPropTypeLocations":274,"./getIteratorFn":323,"./invariant":332,"./warning":351,"_process":158,"dup":58}],256:[function(require,module,exports){
 arguments[4][59][0].apply(exports,arguments)
-},{"./ReactElement":215,"./ReactInstanceMap":225,"./invariant":293,"_process":158,"dup":59}],218:[function(require,module,exports){
+},{"./ReactElement":254,"./ReactInstanceMap":264,"./invariant":332,"_process":158,"dup":59}],257:[function(require,module,exports){
 arguments[4][60][0].apply(exports,arguments)
-},{"dup":60}],219:[function(require,module,exports){
+},{"dup":60}],258:[function(require,module,exports){
 arguments[4][61][0].apply(exports,arguments)
-},{"./EventPluginHub":174,"dup":61}],220:[function(require,module,exports){
+},{"./EventPluginHub":213,"dup":61}],259:[function(require,module,exports){
 arguments[4][62][0].apply(exports,arguments)
-},{"./EventListener":173,"./ExecutionEnvironment":178,"./Object.assign":184,"./PooledClass":185,"./ReactInstanceHandles":224,"./ReactMount":228,"./ReactUpdates":245,"./getEventTarget":283,"./getUnboundedScrollPosition":289,"dup":62}],221:[function(require,module,exports){
+},{"./EventListener":212,"./ExecutionEnvironment":217,"./Object.assign":223,"./PooledClass":224,"./ReactInstanceHandles":263,"./ReactMount":267,"./ReactUpdates":284,"./getEventTarget":322,"./getUnboundedScrollPosition":328,"dup":62}],260:[function(require,module,exports){
 arguments[4][63][0].apply(exports,arguments)
-},{"./ReactElement":215,"./warning":312,"_process":158,"dup":63}],222:[function(require,module,exports){
+},{"./ReactElement":254,"./warning":351,"_process":158,"dup":63}],261:[function(require,module,exports){
 arguments[4][64][0].apply(exports,arguments)
-},{"./DOMProperty":167,"./EventPluginHub":174,"./ReactBrowserEventEmitter":188,"./ReactClass":191,"./ReactComponentEnvironment":194,"./ReactDOMComponent":200,"./ReactEmptyComponent":217,"./ReactNativeComponent":231,"./ReactPerf":233,"./ReactRootIndex":241,"./ReactUpdates":245,"dup":64}],223:[function(require,module,exports){
+},{"./DOMProperty":206,"./EventPluginHub":213,"./ReactBrowserEventEmitter":227,"./ReactClass":230,"./ReactComponentEnvironment":233,"./ReactDOMComponent":239,"./ReactEmptyComponent":256,"./ReactNativeComponent":270,"./ReactPerf":272,"./ReactRootIndex":280,"./ReactUpdates":284,"dup":64}],262:[function(require,module,exports){
 arguments[4][65][0].apply(exports,arguments)
-},{"./ReactDOMSelection":208,"./containsNode":267,"./focusNode":277,"./getActiveElement":279,"dup":65}],224:[function(require,module,exports){
+},{"./ReactDOMSelection":247,"./containsNode":306,"./focusNode":316,"./getActiveElement":318,"dup":65}],263:[function(require,module,exports){
 arguments[4][66][0].apply(exports,arguments)
-},{"./ReactRootIndex":241,"./invariant":293,"_process":158,"dup":66}],225:[function(require,module,exports){
+},{"./ReactRootIndex":280,"./invariant":332,"_process":158,"dup":66}],264:[function(require,module,exports){
 arguments[4][67][0].apply(exports,arguments)
-},{"dup":67}],226:[function(require,module,exports){
+},{"dup":67}],265:[function(require,module,exports){
 arguments[4][68][0].apply(exports,arguments)
-},{"dup":68}],227:[function(require,module,exports){
+},{"dup":68}],266:[function(require,module,exports){
 arguments[4][69][0].apply(exports,arguments)
-},{"./adler32":264,"dup":69}],228:[function(require,module,exports){
+},{"./adler32":303,"dup":69}],267:[function(require,module,exports){
 arguments[4][70][0].apply(exports,arguments)
-},{"./DOMProperty":167,"./ReactBrowserEventEmitter":188,"./ReactCurrentOwner":197,"./ReactElement":215,"./ReactElementValidator":216,"./ReactEmptyComponent":217,"./ReactInstanceHandles":224,"./ReactInstanceMap":225,"./ReactMarkupChecksum":227,"./ReactPerf":233,"./ReactReconciler":239,"./ReactUpdateQueue":244,"./ReactUpdates":245,"./containsNode":267,"./emptyObject":273,"./getReactRootElementInContainer":287,"./instantiateReactComponent":292,"./invariant":293,"./setInnerHTML":306,"./shouldUpdateReactComponent":309,"./warning":312,"_process":158,"dup":70}],229:[function(require,module,exports){
+},{"./DOMProperty":206,"./ReactBrowserEventEmitter":227,"./ReactCurrentOwner":236,"./ReactElement":254,"./ReactElementValidator":255,"./ReactEmptyComponent":256,"./ReactInstanceHandles":263,"./ReactInstanceMap":264,"./ReactMarkupChecksum":266,"./ReactPerf":272,"./ReactReconciler":278,"./ReactUpdateQueue":283,"./ReactUpdates":284,"./containsNode":306,"./emptyObject":312,"./getReactRootElementInContainer":326,"./instantiateReactComponent":331,"./invariant":332,"./setInnerHTML":345,"./shouldUpdateReactComponent":348,"./warning":351,"_process":158,"dup":70}],268:[function(require,module,exports){
 arguments[4][71][0].apply(exports,arguments)
-},{"./ReactChildReconciler":189,"./ReactComponentEnvironment":194,"./ReactMultiChildUpdateTypes":230,"./ReactReconciler":239,"dup":71}],230:[function(require,module,exports){
+},{"./ReactChildReconciler":228,"./ReactComponentEnvironment":233,"./ReactMultiChildUpdateTypes":269,"./ReactReconciler":278,"dup":71}],269:[function(require,module,exports){
 arguments[4][72][0].apply(exports,arguments)
-},{"./keyMirror":298,"dup":72}],231:[function(require,module,exports){
+},{"./keyMirror":337,"dup":72}],270:[function(require,module,exports){
 arguments[4][73][0].apply(exports,arguments)
-},{"./Object.assign":184,"./invariant":293,"_process":158,"dup":73}],232:[function(require,module,exports){
+},{"./Object.assign":223,"./invariant":332,"_process":158,"dup":73}],271:[function(require,module,exports){
 arguments[4][74][0].apply(exports,arguments)
-},{"./invariant":293,"_process":158,"dup":74}],233:[function(require,module,exports){
+},{"./invariant":332,"_process":158,"dup":74}],272:[function(require,module,exports){
 arguments[4][75][0].apply(exports,arguments)
-},{"_process":158,"dup":75}],234:[function(require,module,exports){
+},{"_process":158,"dup":75}],273:[function(require,module,exports){
 arguments[4][76][0].apply(exports,arguments)
-},{"_process":158,"dup":76}],235:[function(require,module,exports){
+},{"_process":158,"dup":76}],274:[function(require,module,exports){
 arguments[4][77][0].apply(exports,arguments)
-},{"./keyMirror":298,"dup":77}],236:[function(require,module,exports){
+},{"./keyMirror":337,"dup":77}],275:[function(require,module,exports){
 arguments[4][78][0].apply(exports,arguments)
-},{"./ReactElement":215,"./ReactFragment":221,"./ReactPropTypeLocationNames":234,"./emptyFunction":272,"dup":78}],237:[function(require,module,exports){
+},{"./ReactElement":254,"./ReactFragment":260,"./ReactPropTypeLocationNames":273,"./emptyFunction":311,"dup":78}],276:[function(require,module,exports){
 arguments[4][79][0].apply(exports,arguments)
-},{"./Object.assign":184,"./PooledClass":185,"./ReactBrowserEventEmitter":188,"dup":79}],238:[function(require,module,exports){
+},{"./Object.assign":223,"./PooledClass":224,"./ReactBrowserEventEmitter":227,"dup":79}],277:[function(require,module,exports){
 arguments[4][80][0].apply(exports,arguments)
-},{"./CallbackQueue":163,"./Object.assign":184,"./PooledClass":185,"./ReactBrowserEventEmitter":188,"./ReactInputSelection":223,"./ReactPutListenerQueue":237,"./Transaction":261,"dup":80}],239:[function(require,module,exports){
+},{"./CallbackQueue":202,"./Object.assign":223,"./PooledClass":224,"./ReactBrowserEventEmitter":227,"./ReactInputSelection":262,"./ReactPutListenerQueue":276,"./Transaction":300,"dup":80}],278:[function(require,module,exports){
 arguments[4][81][0].apply(exports,arguments)
-},{"./ReactElementValidator":216,"./ReactRef":240,"_process":158,"dup":81}],240:[function(require,module,exports){
+},{"./ReactElementValidator":255,"./ReactRef":279,"_process":158,"dup":81}],279:[function(require,module,exports){
 arguments[4][82][0].apply(exports,arguments)
-},{"./ReactOwner":232,"dup":82}],241:[function(require,module,exports){
+},{"./ReactOwner":271,"dup":82}],280:[function(require,module,exports){
 arguments[4][83][0].apply(exports,arguments)
-},{"dup":83}],242:[function(require,module,exports){
+},{"dup":83}],281:[function(require,module,exports){
 arguments[4][84][0].apply(exports,arguments)
-},{"./ReactElement":215,"./ReactInstanceHandles":224,"./ReactMarkupChecksum":227,"./ReactServerRenderingTransaction":243,"./emptyObject":273,"./instantiateReactComponent":292,"./invariant":293,"_process":158,"dup":84}],243:[function(require,module,exports){
+},{"./ReactElement":254,"./ReactInstanceHandles":263,"./ReactMarkupChecksum":266,"./ReactServerRenderingTransaction":282,"./emptyObject":312,"./instantiateReactComponent":331,"./invariant":332,"_process":158,"dup":84}],282:[function(require,module,exports){
 arguments[4][85][0].apply(exports,arguments)
-},{"./CallbackQueue":163,"./Object.assign":184,"./PooledClass":185,"./ReactPutListenerQueue":237,"./Transaction":261,"./emptyFunction":272,"dup":85}],244:[function(require,module,exports){
+},{"./CallbackQueue":202,"./Object.assign":223,"./PooledClass":224,"./ReactPutListenerQueue":276,"./Transaction":300,"./emptyFunction":311,"dup":85}],283:[function(require,module,exports){
 arguments[4][86][0].apply(exports,arguments)
-},{"./Object.assign":184,"./ReactCurrentOwner":197,"./ReactElement":215,"./ReactInstanceMap":225,"./ReactLifeCycle":226,"./ReactUpdates":245,"./invariant":293,"./warning":312,"_process":158,"dup":86}],245:[function(require,module,exports){
+},{"./Object.assign":223,"./ReactCurrentOwner":236,"./ReactElement":254,"./ReactInstanceMap":264,"./ReactLifeCycle":265,"./ReactUpdates":284,"./invariant":332,"./warning":351,"_process":158,"dup":86}],284:[function(require,module,exports){
 arguments[4][87][0].apply(exports,arguments)
-},{"./CallbackQueue":163,"./Object.assign":184,"./PooledClass":185,"./ReactCurrentOwner":197,"./ReactPerf":233,"./ReactReconciler":239,"./Transaction":261,"./invariant":293,"./warning":312,"_process":158,"dup":87}],246:[function(require,module,exports){
+},{"./CallbackQueue":202,"./Object.assign":223,"./PooledClass":224,"./ReactCurrentOwner":236,"./ReactPerf":272,"./ReactReconciler":278,"./Transaction":300,"./invariant":332,"./warning":351,"_process":158,"dup":87}],285:[function(require,module,exports){
 arguments[4][88][0].apply(exports,arguments)
-},{"./DOMProperty":167,"dup":88}],247:[function(require,module,exports){
+},{"./DOMProperty":206,"dup":88}],286:[function(require,module,exports){
 arguments[4][89][0].apply(exports,arguments)
-},{"./EventConstants":172,"./EventPropagators":177,"./ReactInputSelection":223,"./SyntheticEvent":253,"./getActiveElement":279,"./isTextInputElement":296,"./keyOf":299,"./shallowEqual":308,"dup":89}],248:[function(require,module,exports){
+},{"./EventConstants":211,"./EventPropagators":216,"./ReactInputSelection":262,"./SyntheticEvent":292,"./getActiveElement":318,"./isTextInputElement":335,"./keyOf":338,"./shallowEqual":347,"dup":89}],287:[function(require,module,exports){
 arguments[4][90][0].apply(exports,arguments)
-},{"dup":90}],249:[function(require,module,exports){
+},{"dup":90}],288:[function(require,module,exports){
 arguments[4][91][0].apply(exports,arguments)
-},{"./EventConstants":172,"./EventPluginUtils":176,"./EventPropagators":177,"./SyntheticClipboardEvent":250,"./SyntheticDragEvent":252,"./SyntheticEvent":253,"./SyntheticFocusEvent":254,"./SyntheticKeyboardEvent":256,"./SyntheticMouseEvent":257,"./SyntheticTouchEvent":258,"./SyntheticUIEvent":259,"./SyntheticWheelEvent":260,"./getEventCharCode":280,"./invariant":293,"./keyOf":299,"./warning":312,"_process":158,"dup":91}],250:[function(require,module,exports){
+},{"./EventConstants":211,"./EventPluginUtils":215,"./EventPropagators":216,"./SyntheticClipboardEvent":289,"./SyntheticDragEvent":291,"./SyntheticEvent":292,"./SyntheticFocusEvent":293,"./SyntheticKeyboardEvent":295,"./SyntheticMouseEvent":296,"./SyntheticTouchEvent":297,"./SyntheticUIEvent":298,"./SyntheticWheelEvent":299,"./getEventCharCode":319,"./invariant":332,"./keyOf":338,"./warning":351,"_process":158,"dup":91}],289:[function(require,module,exports){
 arguments[4][92][0].apply(exports,arguments)
-},{"./SyntheticEvent":253,"dup":92}],251:[function(require,module,exports){
+},{"./SyntheticEvent":292,"dup":92}],290:[function(require,module,exports){
 arguments[4][93][0].apply(exports,arguments)
-},{"./SyntheticEvent":253,"dup":93}],252:[function(require,module,exports){
+},{"./SyntheticEvent":292,"dup":93}],291:[function(require,module,exports){
 arguments[4][94][0].apply(exports,arguments)
-},{"./SyntheticMouseEvent":257,"dup":94}],253:[function(require,module,exports){
+},{"./SyntheticMouseEvent":296,"dup":94}],292:[function(require,module,exports){
 arguments[4][95][0].apply(exports,arguments)
-},{"./Object.assign":184,"./PooledClass":185,"./emptyFunction":272,"./getEventTarget":283,"dup":95}],254:[function(require,module,exports){
+},{"./Object.assign":223,"./PooledClass":224,"./emptyFunction":311,"./getEventTarget":322,"dup":95}],293:[function(require,module,exports){
 arguments[4][96][0].apply(exports,arguments)
-},{"./SyntheticUIEvent":259,"dup":96}],255:[function(require,module,exports){
+},{"./SyntheticUIEvent":298,"dup":96}],294:[function(require,module,exports){
 arguments[4][97][0].apply(exports,arguments)
-},{"./SyntheticEvent":253,"dup":97}],256:[function(require,module,exports){
+},{"./SyntheticEvent":292,"dup":97}],295:[function(require,module,exports){
 arguments[4][98][0].apply(exports,arguments)
-},{"./SyntheticUIEvent":259,"./getEventCharCode":280,"./getEventKey":281,"./getEventModifierState":282,"dup":98}],257:[function(require,module,exports){
+},{"./SyntheticUIEvent":298,"./getEventCharCode":319,"./getEventKey":320,"./getEventModifierState":321,"dup":98}],296:[function(require,module,exports){
 arguments[4][99][0].apply(exports,arguments)
-},{"./SyntheticUIEvent":259,"./ViewportMetrics":262,"./getEventModifierState":282,"dup":99}],258:[function(require,module,exports){
+},{"./SyntheticUIEvent":298,"./ViewportMetrics":301,"./getEventModifierState":321,"dup":99}],297:[function(require,module,exports){
 arguments[4][100][0].apply(exports,arguments)
-},{"./SyntheticUIEvent":259,"./getEventModifierState":282,"dup":100}],259:[function(require,module,exports){
+},{"./SyntheticUIEvent":298,"./getEventModifierState":321,"dup":100}],298:[function(require,module,exports){
 arguments[4][101][0].apply(exports,arguments)
-},{"./SyntheticEvent":253,"./getEventTarget":283,"dup":101}],260:[function(require,module,exports){
+},{"./SyntheticEvent":292,"./getEventTarget":322,"dup":101}],299:[function(require,module,exports){
 arguments[4][102][0].apply(exports,arguments)
-},{"./SyntheticMouseEvent":257,"dup":102}],261:[function(require,module,exports){
+},{"./SyntheticMouseEvent":296,"dup":102}],300:[function(require,module,exports){
 arguments[4][103][0].apply(exports,arguments)
-},{"./invariant":293,"_process":158,"dup":103}],262:[function(require,module,exports){
+},{"./invariant":332,"_process":158,"dup":103}],301:[function(require,module,exports){
 arguments[4][104][0].apply(exports,arguments)
-},{"dup":104}],263:[function(require,module,exports){
+},{"dup":104}],302:[function(require,module,exports){
 arguments[4][105][0].apply(exports,arguments)
-},{"./invariant":293,"_process":158,"dup":105}],264:[function(require,module,exports){
+},{"./invariant":332,"_process":158,"dup":105}],303:[function(require,module,exports){
 arguments[4][106][0].apply(exports,arguments)
-},{"dup":106}],265:[function(require,module,exports){
+},{"dup":106}],304:[function(require,module,exports){
 arguments[4][107][0].apply(exports,arguments)
-},{"dup":107}],266:[function(require,module,exports){
+},{"dup":107}],305:[function(require,module,exports){
 arguments[4][108][0].apply(exports,arguments)
-},{"./camelize":265,"dup":108}],267:[function(require,module,exports){
+},{"./camelize":304,"dup":108}],306:[function(require,module,exports){
 arguments[4][109][0].apply(exports,arguments)
-},{"./isTextNode":297,"dup":109}],268:[function(require,module,exports){
+},{"./isTextNode":336,"dup":109}],307:[function(require,module,exports){
 arguments[4][110][0].apply(exports,arguments)
-},{"./toArray":310,"dup":110}],269:[function(require,module,exports){
+},{"./toArray":349,"dup":110}],308:[function(require,module,exports){
 arguments[4][111][0].apply(exports,arguments)
-},{"./ReactClass":191,"./ReactElement":215,"./invariant":293,"_process":158,"dup":111}],270:[function(require,module,exports){
+},{"./ReactClass":230,"./ReactElement":254,"./invariant":332,"_process":158,"dup":111}],309:[function(require,module,exports){
 arguments[4][112][0].apply(exports,arguments)
-},{"./ExecutionEnvironment":178,"./createArrayFromMixed":268,"./getMarkupWrap":285,"./invariant":293,"_process":158,"dup":112}],271:[function(require,module,exports){
+},{"./ExecutionEnvironment":217,"./createArrayFromMixed":307,"./getMarkupWrap":324,"./invariant":332,"_process":158,"dup":112}],310:[function(require,module,exports){
 arguments[4][113][0].apply(exports,arguments)
-},{"./CSSProperty":161,"dup":113}],272:[function(require,module,exports){
+},{"./CSSProperty":200,"dup":113}],311:[function(require,module,exports){
 arguments[4][114][0].apply(exports,arguments)
-},{"dup":114}],273:[function(require,module,exports){
+},{"dup":114}],312:[function(require,module,exports){
 arguments[4][115][0].apply(exports,arguments)
-},{"_process":158,"dup":115}],274:[function(require,module,exports){
+},{"_process":158,"dup":115}],313:[function(require,module,exports){
 arguments[4][116][0].apply(exports,arguments)
-},{"dup":116}],275:[function(require,module,exports){
+},{"dup":116}],314:[function(require,module,exports){
 arguments[4][117][0].apply(exports,arguments)
-},{"./ReactCurrentOwner":197,"./ReactInstanceMap":225,"./ReactMount":228,"./invariant":293,"./isNode":295,"./warning":312,"_process":158,"dup":117}],276:[function(require,module,exports){
+},{"./ReactCurrentOwner":236,"./ReactInstanceMap":264,"./ReactMount":267,"./invariant":332,"./isNode":334,"./warning":351,"_process":158,"dup":117}],315:[function(require,module,exports){
 arguments[4][118][0].apply(exports,arguments)
-},{"./traverseAllChildren":311,"./warning":312,"_process":158,"dup":118}],277:[function(require,module,exports){
+},{"./traverseAllChildren":350,"./warning":351,"_process":158,"dup":118}],316:[function(require,module,exports){
 arguments[4][119][0].apply(exports,arguments)
-},{"dup":119}],278:[function(require,module,exports){
+},{"dup":119}],317:[function(require,module,exports){
 arguments[4][120][0].apply(exports,arguments)
-},{"dup":120}],279:[function(require,module,exports){
+},{"dup":120}],318:[function(require,module,exports){
 arguments[4][121][0].apply(exports,arguments)
-},{"dup":121}],280:[function(require,module,exports){
+},{"dup":121}],319:[function(require,module,exports){
 arguments[4][122][0].apply(exports,arguments)
-},{"dup":122}],281:[function(require,module,exports){
+},{"dup":122}],320:[function(require,module,exports){
 arguments[4][123][0].apply(exports,arguments)
-},{"./getEventCharCode":280,"dup":123}],282:[function(require,module,exports){
+},{"./getEventCharCode":319,"dup":123}],321:[function(require,module,exports){
 arguments[4][124][0].apply(exports,arguments)
-},{"dup":124}],283:[function(require,module,exports){
+},{"dup":124}],322:[function(require,module,exports){
 arguments[4][125][0].apply(exports,arguments)
-},{"dup":125}],284:[function(require,module,exports){
+},{"dup":125}],323:[function(require,module,exports){
 arguments[4][126][0].apply(exports,arguments)
-},{"dup":126}],285:[function(require,module,exports){
+},{"dup":126}],324:[function(require,module,exports){
 arguments[4][127][0].apply(exports,arguments)
-},{"./ExecutionEnvironment":178,"./invariant":293,"_process":158,"dup":127}],286:[function(require,module,exports){
+},{"./ExecutionEnvironment":217,"./invariant":332,"_process":158,"dup":127}],325:[function(require,module,exports){
 arguments[4][128][0].apply(exports,arguments)
-},{"dup":128}],287:[function(require,module,exports){
+},{"dup":128}],326:[function(require,module,exports){
 arguments[4][129][0].apply(exports,arguments)
-},{"dup":129}],288:[function(require,module,exports){
+},{"dup":129}],327:[function(require,module,exports){
 arguments[4][130][0].apply(exports,arguments)
-},{"./ExecutionEnvironment":178,"dup":130}],289:[function(require,module,exports){
+},{"./ExecutionEnvironment":217,"dup":130}],328:[function(require,module,exports){
 arguments[4][131][0].apply(exports,arguments)
-},{"dup":131}],290:[function(require,module,exports){
+},{"dup":131}],329:[function(require,module,exports){
 arguments[4][132][0].apply(exports,arguments)
-},{"dup":132}],291:[function(require,module,exports){
+},{"dup":132}],330:[function(require,module,exports){
 arguments[4][133][0].apply(exports,arguments)
-},{"./hyphenate":290,"dup":133}],292:[function(require,module,exports){
+},{"./hyphenate":329,"dup":133}],331:[function(require,module,exports){
 arguments[4][134][0].apply(exports,arguments)
-},{"./Object.assign":184,"./ReactCompositeComponent":195,"./ReactEmptyComponent":217,"./ReactNativeComponent":231,"./invariant":293,"./warning":312,"_process":158,"dup":134}],293:[function(require,module,exports){
+},{"./Object.assign":223,"./ReactCompositeComponent":234,"./ReactEmptyComponent":256,"./ReactNativeComponent":270,"./invariant":332,"./warning":351,"_process":158,"dup":134}],332:[function(require,module,exports){
 arguments[4][135][0].apply(exports,arguments)
-},{"_process":158,"dup":135}],294:[function(require,module,exports){
+},{"_process":158,"dup":135}],333:[function(require,module,exports){
 arguments[4][136][0].apply(exports,arguments)
-},{"./ExecutionEnvironment":178,"dup":136}],295:[function(require,module,exports){
+},{"./ExecutionEnvironment":217,"dup":136}],334:[function(require,module,exports){
 arguments[4][137][0].apply(exports,arguments)
-},{"dup":137}],296:[function(require,module,exports){
+},{"dup":137}],335:[function(require,module,exports){
 arguments[4][138][0].apply(exports,arguments)
-},{"dup":138}],297:[function(require,module,exports){
+},{"dup":138}],336:[function(require,module,exports){
 arguments[4][139][0].apply(exports,arguments)
-},{"./isNode":295,"dup":139}],298:[function(require,module,exports){
+},{"./isNode":334,"dup":139}],337:[function(require,module,exports){
 arguments[4][140][0].apply(exports,arguments)
-},{"./invariant":293,"_process":158,"dup":140}],299:[function(require,module,exports){
+},{"./invariant":332,"_process":158,"dup":140}],338:[function(require,module,exports){
 arguments[4][141][0].apply(exports,arguments)
-},{"dup":141}],300:[function(require,module,exports){
+},{"dup":141}],339:[function(require,module,exports){
 arguments[4][142][0].apply(exports,arguments)
-},{"dup":142}],301:[function(require,module,exports){
+},{"dup":142}],340:[function(require,module,exports){
 arguments[4][143][0].apply(exports,arguments)
-},{"dup":143}],302:[function(require,module,exports){
+},{"dup":143}],341:[function(require,module,exports){
 arguments[4][144][0].apply(exports,arguments)
-},{"./ReactElement":215,"./invariant":293,"_process":158,"dup":144}],303:[function(require,module,exports){
+},{"./ReactElement":254,"./invariant":332,"_process":158,"dup":144}],342:[function(require,module,exports){
 arguments[4][145][0].apply(exports,arguments)
-},{"./ExecutionEnvironment":178,"dup":145}],304:[function(require,module,exports){
+},{"./ExecutionEnvironment":217,"dup":145}],343:[function(require,module,exports){
 arguments[4][146][0].apply(exports,arguments)
-},{"./performance":303,"dup":146}],305:[function(require,module,exports){
+},{"./performance":342,"dup":146}],344:[function(require,module,exports){
 arguments[4][147][0].apply(exports,arguments)
-},{"./escapeTextContentForBrowser":274,"dup":147}],306:[function(require,module,exports){
+},{"./escapeTextContentForBrowser":313,"dup":147}],345:[function(require,module,exports){
 arguments[4][148][0].apply(exports,arguments)
-},{"./ExecutionEnvironment":178,"dup":148}],307:[function(require,module,exports){
+},{"./ExecutionEnvironment":217,"dup":148}],346:[function(require,module,exports){
 arguments[4][149][0].apply(exports,arguments)
-},{"./ExecutionEnvironment":178,"./escapeTextContentForBrowser":274,"./setInnerHTML":306,"dup":149}],308:[function(require,module,exports){
+},{"./ExecutionEnvironment":217,"./escapeTextContentForBrowser":313,"./setInnerHTML":345,"dup":149}],347:[function(require,module,exports){
 arguments[4][150][0].apply(exports,arguments)
-},{"dup":150}],309:[function(require,module,exports){
+},{"dup":150}],348:[function(require,module,exports){
 arguments[4][151][0].apply(exports,arguments)
-},{"./warning":312,"_process":158,"dup":151}],310:[function(require,module,exports){
+},{"./warning":351,"_process":158,"dup":151}],349:[function(require,module,exports){
 arguments[4][152][0].apply(exports,arguments)
-},{"./invariant":293,"_process":158,"dup":152}],311:[function(require,module,exports){
+},{"./invariant":332,"_process":158,"dup":152}],350:[function(require,module,exports){
 arguments[4][153][0].apply(exports,arguments)
-},{"./ReactElement":215,"./ReactFragment":221,"./ReactInstanceHandles":224,"./getIteratorFn":284,"./invariant":293,"./warning":312,"_process":158,"dup":153}],312:[function(require,module,exports){
+},{"./ReactElement":254,"./ReactFragment":260,"./ReactInstanceHandles":263,"./getIteratorFn":323,"./invariant":332,"./warning":351,"_process":158,"dup":153}],351:[function(require,module,exports){
 arguments[4][154][0].apply(exports,arguments)
-},{"./emptyFunction":272,"_process":158,"dup":154}],313:[function(require,module,exports){
+},{"./emptyFunction":311,"_process":158,"dup":154}],352:[function(require,module,exports){
 arguments[4][155][0].apply(exports,arguments)
-},{"./lib/React":186,"dup":155}],314:[function(require,module,exports){
+},{"./lib/React":225,"dup":155}],353:[function(require,module,exports){
 'use strict';
 
 var authors = require('./authorData').authors;
@@ -47545,7 +50501,7 @@ var AuthorApi = {
 };
 
 module.exports = AuthorApi;
-},{"./authorData":315,"lodash":157}],315:[function(require,module,exports){
+},{"./authorData":354,"lodash":157}],354:[function(require,module,exports){
 module.exports = {
     authors: [
         {
@@ -47566,12 +50522,28 @@ module.exports = {
     ]
 };
 
-},{}],316:[function(require,module,exports){
+},{}],355:[function(require,module,exports){
 'use strict';
 
 var React = require('React');
 
 var About = React.createClass({displayName: "About",
+    statics: {
+        willTransitionTo: function(transition, params, query, callback) {
+            if (!confirm('Are you sure you want to read a page that\'s this boring?')) {
+                transition.abort();
+            } else {
+                callback();
+            }
+        },
+
+        willTransitionFrom: function(transition, component) {
+            if (!confirm('Are you sure you want to leave a page that\'s this exciting?')) {
+                transition.abort();
+            }
+        }
+    },
+
     render: function() {
         return (
             React.createElement("div", null, 
@@ -47594,7 +50566,27 @@ var About = React.createClass({displayName: "About",
 
 module.exports = About;
 
-},{"React":155}],317:[function(require,module,exports){
+},{"React":155}],356:[function(require,module,exports){
+var React = require('react');
+var Header = require('./common/header');
+var RouteHandler = require('react-router').RouteHandler;
+$ = jQuery = require('jquery');
+
+var App = React.createClass({displayName: "App",
+    render: function() {
+        return (
+            React.createElement("div", null, 
+                React.createElement(Header, null), 
+                React.createElement("div", {className: "container-fluid"}, 
+                    React.createElement(RouteHandler, null)
+                )
+            )
+        );
+    }
+});
+
+module.exports = App;
+},{"./common/header":359,"jquery":156,"react":352,"react-router":183}],357:[function(require,module,exports){
 'use strict';
 
 var React = require('react');
@@ -47631,7 +50623,7 @@ var AuthorList = React.createClass({displayName: "AuthorList",
 });
 
 module.exports = AuthorList;
-},{"react":313}],318:[function(require,module,exports){
+},{"react":352}],358:[function(require,module,exports){
 'use strict';
 
 var React = require('react');
@@ -47662,23 +50654,25 @@ var AuthorPage = React.createClass({displayName: "AuthorPage",
 });
 
 module.exports = AuthorPage;
-},{"../../api/authorApi":314,"./authorList":317,"react":313}],319:[function(require,module,exports){
+},{"../../api/authorApi":353,"./authorList":357,"react":352}],359:[function(require,module,exports){
 'use strict';
 
 var React = require('react');
+var Router = require('react-router');
+var Link = Router.Link;
 
 var Header = React.createClass({displayName: "Header",
     render: function() {
         return (
             React.createElement("nav", {className: "navbar navbar-default"}, 
                 React.createElement("div", {className: "container-fluid"}, 
-                    React.createElement("a", {href: "/", className: "navbar-brand"}, 
+                    React.createElement(Link, {to: "app", className: "navbar-brand"}, 
                         React.createElement("img", {src: "images/logo.png", alt: "Logo"})
                     ), 
                     React.createElement("ul", {className: "nav navbar-nav"}, 
-                        React.createElement("li", null, React.createElement("a", {href: "/"}, "Home")), 
-                        React.createElement("li", null, React.createElement("a", {href: "/#authors"}, "Authors")), 
-                        React.createElement("li", null, React.createElement("a", {href: "/#about"}, "About"))
+                        React.createElement("li", null, React.createElement(Link, {to: "app"}, "Home")), 
+                        React.createElement("li", null, React.createElement(Link, {to: "authors"}, "Authors")), 
+                        React.createElement("li", null, React.createElement(Link, {to: "about"}, "About"))
                     )
                 )
             )
@@ -47688,17 +50682,20 @@ var Header = React.createClass({displayName: "Header",
 
 module.exports = Header;
 
-},{"react":313}],320:[function(require,module,exports){
+},{"react":352,"react-router":183}],360:[function(require,module,exports){
 'use strict';
 
 var React = require('react');
+var Router = require('react-router');
+var Link = Router.Link;
 
 var Home = React.createClass({displayName: "Home",
     render: function() {
         return (
             React.createElement("div", {className: "jumbotron"}, 
                 React.createElement("h1", null, "Pluralsight administration"), 
-                React.createElement("p", null, "React, React Router, and Flux for ultra-reponsive web apps")
+                React.createElement("p", null, "React, React Router, and Flux for ultra-reponsive web apps"), 
+                React.createElement(Link, {to: "about", className: "btn btn-primary btn-lg"}, "Learn more")
             )
         );
     }
@@ -47706,39 +50703,56 @@ var Home = React.createClass({displayName: "Home",
 
 module.exports = Home;
 
-},{"react":313}],321:[function(require,module,exports){
-$ = jQuery = require('jquery');
+},{"react":352,"react-router":183}],361:[function(require,module,exports){
+'use strict';
+
 var React = require('react');
-var Home = require('./components/homePage');
-var About = require('./components/about/aboutPage')
-var Header = require('./components/common/header')
-var Authors = require('./components/authors/authorPage');
+var Link = require('react-router').Link;
 
-var App = React.createClass({displayName: "App",
+var NotFoundPage = React.createClass({displayName: "NotFoundPage",
     render: function() {
-        var Child;
-
-        switch(this.props.route) {
-            case 'about': Child = About; break;
-            case 'authors': Child = Authors; break;
-            default: Child = Home;
-        }
-
         return (
             React.createElement("div", null, 
-                React.createElement(Header, null), 
-                React.createElement(Child, null)
+                React.createElement("h1", null, "Page Not Found"), 
+                React.createElement("p", null, "Whoops! Sorry, there is nothing to see here"), 
+                React.createElement("p", null, React.createElement(Link, {to: "app"}, "Back to Home"))
             )
         );
     }
 });
 
-function render() {
-    var route = window.location.hash.substr(1);
-    React.render(React.createElement(App, {route: route}), document.getElementById('app'));
-}
+module.exports = NotFoundPage;
+},{"react":352,"react-router":183}],362:[function(require,module,exports){
+'use strict';
 
-window.addEventListener('hashchange', render);
-render();
+var React = require('react');
+var Router = require('react-router');
+var routes = require('./routes');
 
-},{"./components/about/aboutPage":316,"./components/authors/authorPage":318,"./components/common/header":319,"./components/homePage":320,"jquery":156,"react":313}]},{},[321]);
+Router.run(routes, function(Handler) {
+    React.render(React.createElement(Handler, null), document.getElementById('app'));
+});
+},{"./routes":363,"react":352,"react-router":183}],363:[function(require,module,exports){
+'use strcit';
+
+var React = require('react');
+var Router = require('react-router');
+var DefaultRoute = Router.DefaultRoute;
+var NotFoundRoute = Router.NotFoundRoute;
+var Route = Router.Route;
+var Redirect = Router.Redirect;
+
+var routes = (
+    React.createElement(Route, {name: "app", path: "/", handler:  require('./components/app') }, 
+        React.createElement(DefaultRoute, {handler:  require('./components/homePage') }), 
+        React.createElement(NotFoundRoute, {handler:  require('./components/notFoundPage') }), 
+        React.createElement(Route, {name: "authors", handler:  require('./components/authors/authorPage')}), 
+        React.createElement(Route, {name: "about", handler:  require('./components/about/aboutPage')}), 
+        React.createElement(Redirect, {from: "about-us", to: "about"}), 
+        React.createElement(Redirect, {from: "about/*", to: "about"}), 
+        React.createElement(Redirect, {from: "awthors", to: "authors"})
+    )
+);
+
+module.exports = routes;
+},{"./components/about/aboutPage":355,"./components/app":356,"./components/authors/authorPage":358,"./components/homePage":360,"./components/notFoundPage":361,"react":352,"react-router":183}]},{},[362]);
